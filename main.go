@@ -198,22 +198,24 @@ outer:
 
 	for {
 		var msg Message
-		err := conn.ReadJSON(&msg)
-		if err != nil {
+		if err := conn.ReadJSON(&msg); err != nil {
 			break
 		}
-		if msg.Type != "message" {
-			continue
+
+		switch msg.Type {
+		case "typing":
+			room.broadcastLocked(conn, Message{Type: "typing", User: uname, Content: msg.Content})
+		default:
+			content := strings.TrimSpace(msg.Content)
+			if content == "" {
+				continue
+			}
+			if len(content) > maxMessageLen {
+				sendError("Message too long (max 500 characters)", conn)
+				continue
+			}
+			room.broadcastLocked(conn, Message{Type: "message", Content: content, User: uname})
 		}
-		content := strings.TrimSpace(msg.Content)
-		if content == "" {
-			continue
-		}
-		if len(content) > maxMessageLen {
-			sendError("Message too long (max 500 characters)", conn)
-			continue
-		}
-		room.broadcastLocked(conn, Message{Type: "message", Content: content, User: uname})
 	}
 }
 
