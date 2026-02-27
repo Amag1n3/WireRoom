@@ -14,12 +14,15 @@ import (
 type Room struct {
 	code    string
 	clients map[*websocket.Conn]string
+	host    *websocket.Conn
 	mu      sync.Mutex
 }
 type Message struct {
-	Type    string `json:"type"`
-	User    string `json:"user"`
-	Content string `json:"content"`
+	Type    string   `json:"type"`
+	User    string   `json:"user"`
+	Content string   `json:"content"`
+	Users   []string `json:"users,omitempty"`
+	Target  string   `json:"target,omitempty"`
 }
 
 var (
@@ -62,6 +65,7 @@ func createRoom() *Room {
 	room := &Room{
 		code:    code,
 		clients: make(map[*websocket.Conn]string),
+		host:    nil,
 	}
 	rooms[code] = room
 	return room
@@ -70,6 +74,37 @@ func joinRoom(code string) *Room {
 	roomsMu.Lock()
 	defer roomsMu.Unlock()
 	return rooms[code]
+}
+func (r *Room) memberList() []string {
+	names := make([]string, 0, len(r.clients))
+	for _, name := range r.clients {
+		names = append(names, name)
+	}
+	return names
+}
+func (r *Room) broadcastAll(msg Message) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for client := range r.clients {
+		client.WriteJSON(msg)
+	}
+}
+func (r *Room) connForUser(name string) *websocket.Conn {
+	for conn, n := range r.clients {
+		if strings.EqualFold(n, name) {
+			return conn
+		}
+	}
+	return nil
+}
+
+func (r *Room) pickNewHost(exclude *websocket.Conn) *websocket.Conn {
+	for conn := range r.clients {
+		if conn != exclude {
+			return conn
+		}
+	}
+	return nil
 }
 
 const (
@@ -168,6 +203,7 @@ outer:
 					continue outer
 				}
 				conn.WriteJSON(Message{Type: "room_joined", Content: room.code})
+
 			default:
 				continue
 
@@ -179,14 +215,34 @@ outer:
 
 	room.mu.Lock()
 	room.clients[conn] = uname
+	if room.host == nil {
+		room.host = conn
+	}
+	members := room.memberList()
+	host := room.clients[room.host]
 	room.mu.Unlock()
-
+	room.broadcastAll(Message{Type: "room_members", Users: members})
+	conn.WriteJSON(Message{Type: "host_changed", User: host})
 	defer func() {
 		room.mu.Lock()
 		delete(room.clients, conn)
 		empty := len(room.clients) == 0
-		room.mu.Unlock()
-		room.broadcastLocked(conn, Message{Type: "system", Content: uname + " left the room"})
+		if !empty && room.host == conn {
+			room.host = room.pickNewHost(conn)
+			newHost := room.clients[room.host]
+			members := room.memberList()
+			room.mu.Unlock()
+			room.broadcastLocked(conn, Message{Type: "system", Content: uname + " left the room"})
+			room.broadcastAll(Message{Type: "host_changed", User: newHost})
+			room.broadcastAll(Message{Type: "room_members", Users: members})
+		} else {
+			members := room.memberList()
+			room.mu.Unlock()
+			room.broadcastLocked(conn, Message{Type: "system", Content: uname + " left the room"})
+			if !empty {
+				room.broadcastAll(Message{Type: "room_members", Users: members})
+			}
+		}
 		if empty {
 			roomsMu.Lock()
 			delete(rooms, room.code)
@@ -205,6 +261,32 @@ outer:
 		switch msg.Type {
 		case "typing":
 			room.broadcastLocked(conn, Message{Type: "typing", User: uname, Content: msg.Content})
+		case "kick":
+			room.mu.Lock()
+			isHost := room.host == conn
+			target := room.connForUser(msg.Target)
+			room.mu.Unlock()
+
+			if !isHost || target == nil {
+				continue
+			}
+			target.WriteJSON(Message{Type: "kicked", Content: "you were kicked by the host"})
+			target.Close()
+
+		case "transfer_host":
+			room.mu.Lock()
+			isHost := room.host == conn
+			target := room.connForUser(msg.Target)
+			if isHost && target != nil {
+				room.host = target
+			}
+			newHost := room.clients[room.host]
+			room.mu.Unlock()
+
+			if !isHost || target == nil {
+				continue
+			}
+			room.broadcastAll(Message{Type: "host_changed", User: newHost})
 		default:
 			content := strings.TrimSpace(msg.Content)
 			if content == "" {
