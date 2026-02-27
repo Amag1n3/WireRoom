@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="UTF-8" />
+	<title>GoNnect</title>
+	<style>
+		body {
+			font-family: sans-serif;
+			margin: 0;
+			padding: 0;
+		}
+
+		.screen {
+			display: none;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			height: 100vh;
+			gap: 12px;
+		}
+
+		.screen.active {
+			display: flex;
+		}
+
+		h2 {
+			margin-bottom: 4px;
+		}
+
+		input[type="text"] {
+			padding: 8px;
+			font-size: 1rem;
+			width: 240px;
+			border: 1px solid #ccc;
+			border-radius: 4px;
+		}
+
+		input[type="text"]:disabled {
+			background: #f0f0f0;
+		}
+
+		button {
+			padding: 8px 20px;
+			font-size: 1rem;
+			cursor: pointer;
+		}
+
+		button:disabled {
+			cursor: not-allowed;
+			opacity: 0.5;
+		}
+
+		.error {
+			color: red;
+			font-size: 0.9rem;
+			min-height: 1.2em;
+		}
+
+		.info {
+			color: gray;
+			font-size: 0.85rem;
+			min-height: 1.2em;
+		}
+
+		#room-screen .room-buttons {
+			display: flex;
+			gap: 12px;
+		}
+
+		#chat-screen {
+			align-items: stretch;
+			justify-content: flex-start;
+			padding: 16px;
+			height: auto;
+			min-height: 100vh;
+			box-sizing: border-box;
+		}
+
+		#chat-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			width: 100%;
+		}
+
+		#room-code-display {
+			font-size: 0.85rem;
+			color: #555;
+			background: #f0f0f0;
+			padding: 4px 10px;
+			border-radius: 4px;
+			cursor: pointer;
+			user-select: all;
+		}
+
+		#room-code-display:hover {
+			background: #e0e0e0;
+		}
+
+		#chat {
+			width: 100%;
+			height: 400px;
+			overflow-y: auto;
+			border: 1px solid #ccc;
+			padding: 8px;
+			box-sizing: border-box;
+			margin-top: 8px;
+		}
+
+		#input-area {
+			display: flex;
+			gap: 8px;
+			width: 100%;
+			margin-top: 8px;
+		}
+
+		#msg {
+			flex: 1;
+		}
+	</style>
+</head>
+
+<body>
+
+	<!-- Login screen -->
+	<div id="login-screen" class="screen active">
+		<h2>GoNnect</h2>
+		<input id="username-input" type="text" placeholder="Enter username..." maxlength="20" />
+		<button id="login-btn">Join</button>
+		<div id="login-error" class="error"></div>
+		<div id="login-info" class="info"></div>
+	</div>
+
+	<!-- Room selection screen -->
+	<div id="room-screen" class="screen">
+		<h2>GoNnect</h2>
+		<p id="room-welcome"></p>
+		<div class="room-buttons">
+			<button id="create-room-btn">Create Room</button>
+			<button id="join-room-btn">Join Room</button>
+		</div>
+	</div>
+
+	<!-- Join room screen -->
+	<div id="join-screen" class="screen">
+		<h2>Join a Room</h2>
+		<input id="room-code-input" type="text" placeholder="Enter room code..." maxlength="8" />
+		<button id="submit-room-btn">Join</button>
+		<div id="join-error" class="error"></div>
+		<button id="back-btn" style="background:none;border:none;color:#888;cursor:pointer;font-size:0.9rem;">←
+			Back</button>
+	</div>
+
+	<!-- Chat screen -->
+	<div id="chat-screen" class="screen">
+		<div id="chat-header">
+			<h2>GoNnect</h2>
+			<span id="room-code-display" title="Click to copy"></span>
+		</div>
+		<div id="chat"></div>
+		<div id="input-area">
+			<input id="msg" type="text" placeholder="Type a message..." />
+			<button id="send-btn">Send</button>
+		</div>
+	</div>
+
+	<script>
+		const MAX_ATTEMPTS = 5;
+		const TIMEOUT_MS = 2 * 60 * 1000;
+
+		const loginScreen = document.getElementById("login-screen");
+		const roomScreen = document.getElementById("room-screen");
+		const joinScreen = document.getElementById("join-screen");
+		const chatScreen = document.getElementById("chat-screen");
+		const allScreens = [loginScreen, roomScreen, joinScreen, chatScreen];
+
+		const usernameInput = document.getElementById("username-input");
+		const loginBtn = document.getElementById("login-btn");
+		const loginError = document.getElementById("login-error");
+		const loginInfo = document.getElementById("login-info");
+
+		const roomWelcome = document.getElementById("room-welcome");
+		const createRoomBtn = document.getElementById("create-room-btn");
+		const joinRoomBtn = document.getElementById("join-room-btn");
+
+		const roomCodeInput = document.getElementById("room-code-input");
+		const submitRoomBtn = document.getElementById("submit-room-btn");
+		const joinError = document.getElementById("join-error");
+		const backBtn = document.getElementById("back-btn");
+
+		const roomCodeDisplay = document.getElementById("room-code-display");
+		const chat = document.getElementById("chat");
+		const msgInput = document.getElementById("msg");
+		const sendBtn = document.getElementById("send-btn");
+
+		let ws;
+		let attempts = 0;
+		let timedOut = false;
+		let currentRoomCode = "";
+
+		function showScreen(screen) {
+			allScreens.forEach(s => s.classList.remove("active"));
+			screen.classList.add("active");
+		}
+
+		// ---- WebSocket ----
+		function connectWS() {
+			ws = new WebSocket("ws://" + location.host + "/ws");
+
+			ws.onopen = () => setLoginEnabled(true);
+
+			ws.onmessage = (e) => {
+				const m = JSON.parse(e.data);
+
+				switch (m.type) {
+					case "error":
+						if (joinScreen.classList.contains("active")) {
+							joinError.textContent = m.content;
+							submitRoomBtn.disabled = false;
+							roomCodeInput.disabled = false;
+							roomCodeInput.focus();
+						} else {
+							attempts++;
+							const remaining = MAX_ATTEMPTS - attempts;
+							if (remaining <= 0) { startTimeout(); return; }
+							loginError.textContent = m.content + ` (${remaining} attempt${remaining === 1 ? "" : "s"} left)`;
+							setLoginEnabled(true);
+						}
+						break;
+
+					case "join_ok":
+						attempts = 0; // reset since they passed validation
+						roomWelcome.textContent = `Welcome, ${usernameInput.value.trim()}! What would you like to do?`;
+						showScreen(roomScreen);
+						break;
+					case "room_created":
+					case "room_joined":
+						enterChat(m.content);
+						break;
+
+					case "system":
+						appendSystem(m.content, "gray");
+						break;
+
+					case "message":
+						appendMessage(m.user, m.content);
+						break;
+					case "username_taken_in_room":
+						loginError.textContent = m.content + " — please choose a different username.";
+						usernameInput.value = "";
+						showScreen(loginScreen);
+						setLoginEnabled(true);
+						break;
+				}
+			};
+
+			ws.onclose = () => {
+				if (timedOut) return;
+				if (chatScreen.classList.contains("active")) {
+					appendSystem("Disconnected from server.", "red");
+				}
+			};
+		}
+
+		// ---- Login ----
+		function tryLogin() {
+			const name = usernameInput.value.trim();
+			if (!name) { loginError.textContent = "Please enter a username."; return; }
+			loginError.textContent = "";
+			setLoginEnabled(false);
+			ws.send(JSON.stringify({ type: "join", user: name }));
+		}
+
+		function setLoginEnabled(enabled) {
+			usernameInput.disabled = !enabled;
+			loginBtn.disabled = !enabled;
+			if (enabled) usernameInput.focus();
+		}
+
+		function startTimeout() {
+			timedOut = true;
+			ws.close();
+			setLoginEnabled(false);
+			loginError.textContent = "Too many failed attempts.";
+			let secondsLeft = TIMEOUT_MS / 1000;
+			loginInfo.textContent = `Try again in ${formatTime(secondsLeft)}`;
+			const interval = setInterval(() => {
+				secondsLeft--;
+				if (secondsLeft <= 0) {
+					clearInterval(interval);
+					resetAfterTimeout();
+				} else {
+					loginInfo.textContent = `Try again in ${formatTime(secondsLeft)}`;
+				}
+			}, 1000);
+		}
+
+		function resetAfterTimeout() {
+			timedOut = false;
+			attempts = 0;
+			loginError.textContent = "";
+			loginInfo.textContent = "You can try again now.";
+			usernameInput.value = "";
+			connectWS();
+		}
+
+		function formatTime(seconds) {
+			const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+			const s = (seconds % 60).toString().padStart(2, "0");
+			return `${m}:${s}`;
+		}
+
+		// ---- Room selection ----
+		createRoomBtn.addEventListener("click", () => {
+			ws.send(JSON.stringify({ type: "create_room" }));
+		});
+
+		joinRoomBtn.addEventListener("click", () => {
+			joinError.textContent = "";
+			roomCodeInput.value = "";
+			showScreen(joinScreen);
+			roomCodeInput.focus();
+		});
+
+		backBtn.addEventListener("click", () => showScreen(roomScreen));
+
+		function tryJoinRoom() {
+			const code = roomCodeInput.value.trim().toUpperCase();
+			if (!code) { joinError.textContent = "Please enter a room code."; return; }
+			joinError.textContent = "";
+			submitRoomBtn.disabled = true;
+			roomCodeInput.disabled = true;
+			ws.send(JSON.stringify({ type: "join_room", content: code }));
+		}
+
+		submitRoomBtn.addEventListener("click", tryJoinRoom);
+		roomCodeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryJoinRoom(); });
+
+		// ---- Enter chat ----
+		function enterChat(roomCode) {
+			currentRoomCode = roomCode;
+			chat.innerHTML = "";
+			roomCodeDisplay.textContent = "Room: " + roomCode;
+			showScreen(chatScreen);
+			msgInput.focus();
+		}
+
+		roomCodeDisplay.addEventListener("click", () => {
+			navigator.clipboard.writeText(currentRoomCode);
+			roomCodeDisplay.textContent = "Copied!";
+			setTimeout(() => {
+				roomCodeDisplay.textContent = "Room: " + currentRoomCode;
+			}, 1500);
+		});
+
+		// ---- Chat ----
+		function send() {
+			const content = msgInput.value.trim();
+			if (!content) return;
+			appendMessage("You", content);
+			ws.send(JSON.stringify({ type: "message", content: content }));
+			msgInput.value = "";
+		}
+
+		function appendMessage(user, content) {
+			const div = document.createElement("div");
+			div.textContent = user + ": " + content;
+			chat.appendChild(div);
+			chat.scrollTop = chat.scrollHeight;
+		}
+
+		function appendSystem(text, color) {
+			const div = document.createElement("div");
+			div.textContent = "* " + text;
+			div.style.color = color || "gray";
+			chat.appendChild(div);
+			chat.scrollTop = chat.scrollHeight;
+		}
+
+		sendBtn.addEventListener("click", send);
+		msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+		loginBtn.addEventListener("click", tryLogin);
+		usernameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
+
+		setLoginEnabled(false);
+		connectWS();
+	</script>
+</body>
+
+</html>
