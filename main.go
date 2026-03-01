@@ -1,15 +1,51 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"unicode"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/bcrypt"
 )
+
+var db *sql.DB
+
+func initDB() {
+	connStr := os.Getenv("DATABASE_URL")
+	var err error
+	db, err = sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatal("failed to open db:", err)
+	}
+	if err = db.Ping(); err != nil {
+		log.Fatal("failed to connect to db:", err)
+	}
+	log.Println("connected to database")
+}
+
+func registerUser(username, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec("INSERT INTO users (username, password) VALUES ($1, $2)", username, string(hash))
+	return err
+}
+
+func authUser(username, password string) bool {
+	var hash string
+	err := db.QueryRow("SELECT password FROM users where LOWER(username)=LOWER($1)", username).Scan(&hash)
+	if err != nil {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+}
 
 type Room struct {
 	code    string
@@ -172,7 +208,23 @@ outer:
 				sendError(errmsg, conn)
 				continue
 			}
-
+			var existingHash string
+			err = db.QueryRow("SELECT password FROM users WHERE LOWER(username)=LOWER($1)", name).Scan(&existingHash)
+			if err == sql.ErrNoRows {
+				err = registerUser(name, msg.Content)
+				if err != nil {
+					sendError("Couldn't Register User", conn)
+					continue
+				}
+			} else if err != nil {
+				sendError("Database Error", conn)
+				continue
+			} else {
+				if !authUser(name, msg.Content) {
+					sendError("Incorrect password", conn)
+					continue
+				}
+			}
 			uname = name
 			break
 		}
@@ -302,9 +354,9 @@ outer:
 }
 
 func main() {
+	initDB()
 	http.HandleFunc("/ws", wsHandler)
 	http.Handle("/", http.FileServer(http.Dir("public")))
-
 	log.Println("Server running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

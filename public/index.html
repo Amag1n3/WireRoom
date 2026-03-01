@@ -23,8 +23,6 @@
     --radius:      12px;
   }
 
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
   body {
     background: var(--bg);
     color: var(--text);
@@ -109,7 +107,8 @@
     color: var(--text-muted);
   }
 
-  input[type="text"] {
+  input[type="text"],
+  input[type="password"] {
     background: var(--surface2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -122,9 +121,14 @@
     transition: border-color 0.2s, box-shadow 0.2s;
   }
 
-  input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-  input[type="text"]:disabled { opacity: 0.4; cursor: not-allowed; }
-  input[type="text"]::placeholder { color: var(--text-muted); }
+  input[type="text"]:focus,
+  input[type="password"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  input:disabled { opacity: 0.4; cursor: not-allowed; }
+  input::placeholder { color: var(--text-muted); }
 
   .btn {
     border: none;
@@ -172,6 +176,13 @@
   .msg-error { color: var(--error); font-size: 0.78rem; min-height: 1.1em; text-align: center; }
   .msg-info  { color: var(--text-muted); font-size: 0.78rem; min-height: 1.1em; text-align: center; }
   .divider   { height: 1px; background: var(--border); margin: 4px 0; }
+
+  .login-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-align: center;
+    line-height: 1.5;
+  }
 
   /* ── CHAT SCREEN ── */
   #chat-screen { flex-direction: column; height: 100vh; overflow: hidden; }
@@ -225,9 +236,7 @@
   }
   #leave-btn:hover { background: rgba(255,107,138,0.15); border-color: rgba(255,107,138,0.4); }
 
-  /* ── LAYOUT ── */
   #chat-layout { display: flex; flex: 1; overflow: hidden; }
-
   #chat-main { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
 
   #chat-body {
@@ -292,7 +301,6 @@
     transition: background 0.15s;
     animation: participantIn 0.25s ease;
     cursor: default;
-    position: relative;
   }
 
   .participant-item.can-manage { cursor: pointer; }
@@ -333,12 +341,7 @@
   }
   .participant-name.is-you { color: var(--accent2); }
 
-  .participant-tag {
-    font-size: 0.6rem;
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
+  .participant-tag { font-size: 0.6rem; color: var(--text-muted); flex-shrink: 0; }
   .participant-tag.host-tag { color: var(--gold); }
 
   /* ── CONTEXT MENU ── */
@@ -356,7 +359,6 @@
     gap: 2px;
     animation: menuIn 0.15s ease;
   }
-
   #context-menu.visible { display: flex; }
 
   @keyframes menuIn {
@@ -526,7 +528,12 @@
       <label>Username</label>
       <input id="username-input" type="text" placeholder="pick a handle..." maxlength="20" autocomplete="off" />
     </div>
+    <div class="field">
+      <label>Password</label>
+      <input id="password-input" type="password" placeholder="your password..." autocomplete="off" />
+    </div>
     <button id="login-btn" class="btn btn-primary">Connect →</button>
+    <div class="login-hint">New username? We'll create your account automatically.</div>
     <div id="login-error" class="msg-error"></div>
     <div id="timeout-display"></div>
     <div id="login-info" class="msg-info"></div>
@@ -626,6 +633,7 @@
   const allScreens     = [loginScreen, roomScreen, joinScreen, chatScreen];
 
   const usernameInput  = document.getElementById("username-input");
+  const passwordInput  = document.getElementById("password-input");
   const loginBtn       = document.getElementById("login-btn");
   const loginError     = document.getElementById("login-error");
   const loginInfo      = document.getElementById("login-info");
@@ -662,12 +670,13 @@
   let timedOut        = false;
   let currentRoomCode = "";
   let currentUser     = "";
-  let currentHost     = "";  // username of current host
-  let contextTarget   = "";  // username right-clicked
+  let currentHost     = "";
+  let contextTarget   = "";
 
   const typingUsers   = new Set();
   let typingIdleTimer = null;
   let isSelfTyping    = false;
+  let lastParticipants = [];
 
   function showScreen(screen) {
     allScreens.forEach(s => s.classList.remove("active"));
@@ -736,23 +745,23 @@
 
         case "host_changed":
           currentHost = m.user;
-          updateParticipants(null); // re-render with new host
+          updateParticipants(null);
           appendSystem(`♛ ${m.user} is now the host`);
           break;
 
         case "kicked":
           ws.close();
-          showScreen(loginScreen);
+          currentRoomCode = ""; currentUser = ""; currentHost = "";
           loginError.textContent = "you were kicked from the room.";
-          currentRoomCode = "";
-          currentUser     = "";
-          currentHost     = "";
+          passwordInput.value = "";
+          showScreen(loginScreen);
           connectWS();
           break;
 
         case "username_taken_in_room":
           loginError.textContent = m.content + " — try a different handle.";
           usernameInput.value = "";
+          passwordInput.value = "";
           showScreen(loginScreen);
           setLoginEnabled(true);
           break;
@@ -768,8 +777,6 @@
   }
 
   // ---- Participants ----
-  let lastParticipants = [];
-
   function updateParticipants(users) {
     if (users !== null) lastParticipants = users;
     const list = lastParticipants;
@@ -778,9 +785,9 @@
     participantList.innerHTML = "";
 
     list.forEach(name => {
-      const isSelf    = name.toLowerCase() === currentUser.toLowerCase();
+      const isSelf     = name.toLowerCase() === currentUser.toLowerCase();
       const isHostUser = name.toLowerCase() === currentHost.toLowerCase();
-      const canManage = isHost() && !isSelf;
+      const canManage  = isHost() && !isSelf;
 
       const item = document.createElement("div");
       item.className = "participant-item" + (canManage ? " can-manage" : "");
@@ -824,7 +831,6 @@
   // ---- Context menu ----
   function showContextMenu(x, y) {
     contextMenu.classList.add("visible");
-    // Keep menu on screen
     const menuW = 160, menuH = 80;
     const left = Math.min(x, window.innerWidth  - menuW - 8);
     const top  = Math.min(y, window.innerHeight - menuH - 8);
@@ -838,26 +844,17 @@
   }
 
   ctxMakeHost.addEventListener("click", () => {
-    if (contextTarget) {
-      ws.send(JSON.stringify({ type: "transfer_host", target: contextTarget }));
-    }
+    if (contextTarget) ws.send(JSON.stringify({ type: "transfer_host", target: contextTarget }));
     hideContextMenu();
   });
 
   ctxKick.addEventListener("click", () => {
-    if (contextTarget) {
-      ws.send(JSON.stringify({ type: "kick", target: contextTarget }));
-    }
+    if (contextTarget) ws.send(JSON.stringify({ type: "kick", target: contextTarget }));
     hideContextMenu();
   });
 
-  document.addEventListener("click", (e) => {
-    if (!contextMenu.contains(e.target)) hideContextMenu();
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") hideContextMenu();
-  });
+  document.addEventListener("click", (e) => { if (!contextMenu.contains(e.target)) hideContextMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideContextMenu(); });
 
   // ---- Typing ----
   function updateTypingIndicator() {
@@ -903,14 +900,17 @@
   // ---- Login ----
   function tryLogin() {
     const name = usernameInput.value.trim();
+    const pass = passwordInput.value;
     if (!name) { loginError.textContent = "please enter a username."; return; }
+    if (!pass)  { loginError.textContent = "please enter a password."; return; }
     loginError.textContent = "";
     setLoginEnabled(false);
-    ws.send(JSON.stringify({ type: "join", user: name }));
+    ws.send(JSON.stringify({ type: "join", user: name, content: pass }));
   }
 
   function setLoginEnabled(enabled) {
     usernameInput.disabled = !enabled;
+    passwordInput.disabled = !enabled;
     loginBtn.disabled       = !enabled;
     if (enabled) usernameInput.focus();
   }
@@ -939,7 +939,7 @@
   function resetAfterTimeout() {
     timedOut = false; attempts = 0;
     loginError.textContent = ""; loginInfo.textContent = "you can try again now.";
-    timeoutDisplay.textContent = ""; usernameInput.value = "";
+    timeoutDisplay.textContent = ""; usernameInput.value = ""; passwordInput.value = "";
     connectWS();
   }
 
@@ -988,7 +988,7 @@
     sendTypingStop();
     ws.close();
     attempts = 0; currentRoomCode = ""; currentUser = ""; currentHost = "";
-    usernameInput.value = ""; loginError.textContent = "";
+    usernameInput.value = ""; passwordInput.value = ""; loginError.textContent = "";
     showScreen(loginScreen);
     connectWS();
   });
@@ -1034,6 +1034,7 @@
   msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
   loginBtn.addEventListener("click", tryLogin);
   usernameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
+  passwordInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
 
   setLoginEnabled(false);
   connectWS();
