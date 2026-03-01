@@ -10,6 +10,8 @@ import (
 	"sync"
 	"unicode"
 
+	_ "github.com/lib/pq"
+
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
 )
