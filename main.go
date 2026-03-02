@@ -61,10 +61,11 @@ func validateToken(tokenStr string) (int, string, error) {
 	return userID, username, nil
 }
 func handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
-	url := googleOAuthConfig.AuthCodeURL("state", oauth2.AccessTypeOffline)
+	url := googleOAuthConfig.AuthCodeURL("state",
+		oauth2.SetAuthURLParam("prompt", "consent"),
+	)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
-
 func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	token, err := googleOAuthConfig.Exchange(context.Background(), code)
