@@ -51,7 +51,7 @@ func authUser(username, password string) bool {
 
 func saveMessage(roomCode, username, content string) int64 {
 	var id int64
-	err := db.QueryRow("INSERT INTO messages (room_code, usernamen content) values ($1,$2,$3) RETURNING id", roomCode, username, content).Scan(&id)
+	err := db.QueryRow(`INSERT INTO messages (room_code, username, "content") values ($1,$2,$3) RETURNING id`, roomCode, username, content).Scan(&id)
 	if err != nil {
 		log.Println("saveMessage error: ", err)
 	}
@@ -59,7 +59,7 @@ func saveMessage(roomCode, username, content string) int64 {
 }
 
 func getRecentMessages(roomCode string) []Message {
-	rows, err := db.Query("SELECT id, username, content FROM messages WHERE room_code = $1 AND created_at > NOW() - INTERVAL '24 hours' ORDER BY created_at ASC", roomCode)
+	rows, err := db.Query(`SELECT id, username, "content" FROM messages WHERE room_code = $1 AND created_at > NOW() - INTERVAL '24 hours' ORDER BY created_at ASC`, roomCode)
 	if err != nil {
 		log.Println("getRecentMessages error: ", err)
 	}
