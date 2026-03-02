@@ -93,19 +93,34 @@ pickUsernameBtn.addEventListener("click", async () => {
   const name = pickUsernameInput.value.trim();
   if (!name) { pickUsernameError.textContent = "please enter a username."; return; }
 
+  // Debug — remove once working
+  console.log("All cookies:", document.cookie);
+  console.log("wr_token:", getCookie("wr_token"));
+
+  const token = getCookie("wr_token");
+  if (!token) {
+    pickUsernameError.textContent = "session lost, please log in again.";
+    pickUsernameBtn.disabled = false;
+    showScreen(loginScreen);
+    connectWS();
+    return;
+  }
+
   pickUsernameBtn.disabled = true;
   pickUsernameError.textContent = "";
 
   try {
     const res = await fetch("/auth/set-username", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
       body: JSON.stringify({ username: name }),
       credentials: "include"
     });
 
     if (res.ok) {
-      // Cookie updated with new token — proceed to WS auth
       showScreen(loginScreen);
       connectWS();
     } else {
@@ -118,10 +133,6 @@ pickUsernameBtn.addEventListener("click", async () => {
     pickUsernameError.textContent = "network error, try again.";
     pickUsernameBtn.disabled = false;
   }
-});
-
-pickUsernameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") pickUsernameBtn.click();
 });
 
 // ── WebSocket ──

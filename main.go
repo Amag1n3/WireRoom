@@ -276,14 +276,27 @@ func handleSetUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Try cookie first, fall back to Authorization header
+	var tokenStr string
 	cookie, err := r.Cookie("wr_token")
-	if err != nil {
+	if err == nil {
+		tokenStr = cookie.Value
+	} else {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			tokenStr = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+
+	if tokenStr == "" {
+		log.Println("DEBUG set-username: no token found")
 		http.Error(w, "not authenticated", http.StatusUnauthorized)
 		return
 	}
 
-	userID, _, err := validateToken(cookie.Value)
+	userID, _, err := validateToken(tokenStr)
 	if err != nil {
+		log.Println("DEBUG set-username: invalid token:", err)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -299,7 +312,6 @@ func handleSetUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check not taken
 	var existing int
 	err = db.QueryRow("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", name).Scan(&existing)
 	if err == nil {
@@ -313,7 +325,6 @@ func handleSetUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Issue new token with username set
 	newToken, _ := generateToken(userID, name)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "wr_token",
