@@ -1,23 +1,204 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
-	_ "github.com/lib/pq"
-
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/github"
+	"golang.org/x/oauth2/google"
 )
 
 var db *sql.DB
+var (
+	googleOAuthConfig *oauth2.Config
+	githubOAuthConfig *oauth2.Config
+	jwtSecret         []byte
+)
 
+// ── JWT ──
+func generateToken(userID int, username string) (string, error) {
+	claims := jwt.MapClaims{
+		"user_id":  userID,
+		"username": username,
+		"exp":      time.Now().Add(30 * 24 * time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
+}
+
+func validateToken(tokenStr string) (int, string, error) {
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method")
+		}
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return 0, "", fmt.Errorf("invalid token")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, "", fmt.Errorf("invalid claims")
+	}
+	userID := int(claims["user_id"].(float64))
+	username, _ := claims["username"].(string)
+	return userID, username, nil
+}
+func handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	url := googleOAuthConfig.AuthCodeURL("state", oauth2.AccessTypeOffline)
+	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	token, err := googleOAuthConfig.Exchange(context.Background(), code)
+	if err != nil {
+		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
+		return
+	}
+
+	client := googleOAuthConfig.Client(context.Background(), token)
+	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	if err != nil {
+		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	var info struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Picture string `json:"picture"`
+	}
+	json.NewDecoder(resp.Body).Decode(&info)
+
+	// Upsert user
+	var userID int
+	var username sql.NullString
+	err = db.QueryRow(
+		`INSERT INTO users (google_id, avatar_url)
+         VALUES ($1, $2)
+         ON CONFLICT (google_id) DO UPDATE SET avatar_url = $2
+         RETURNING id, username`,
+		info.ID, info.Picture,
+	).Scan(&userID, &username)
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+
+	jwtToken, _ := generateToken(userID, username.String)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "wr_token",
+		Value:    jwtToken,
+		Path:     "/",
+		HttpOnly: false, // needs to be readable by JS
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 60 * 60,
+	})
+
+	if !username.Valid || username.String == "" {
+		http.Redirect(w, r, "/?pick_username=1", http.StatusTemporaryRedirect)
+	} else {
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	}
+}
+func handleGithubLogin(w http.ResponseWriter, r *http.Request) {
+	url := githubOAuthConfig.AuthCodeURL("state", oauth2.AccessTypeOffline)
+	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+func handleGithubCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	token, err := githubOAuthConfig.Exchange(context.Background(), code)
+	if err != nil {
+		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
+		return
+	}
+
+	client := githubOAuthConfig.Client(context.Background(), token)
+	resp, err := client.Get("https://api.github.com/user")
+	if err != nil {
+		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	var info struct {
+		ID     int    `json:"id"`
+		Login  string `json:"login"`
+		Avatar string `json:"avatar_url"`
+	}
+	json.NewDecoder(resp.Body).Decode(&info)
+
+	githubID := fmt.Sprintf("%d", info.ID)
+
+	var userID int
+	var username sql.NullString
+	err = db.QueryRow(
+		`INSERT INTO users (github_id, avatar_url)
+         VALUES ($1, $2)
+         ON CONFLICT (github_id) DO UPDATE SET avatar_url = $2
+         RETURNING id, username`,
+		githubID, info.Avatar,
+	).Scan(&userID, &username)
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+
+	jwtToken, _ := generateToken(userID, username.String)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "wr_token",
+		Value:    jwtToken,
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 60 * 60,
+	})
+
+	if !username.Valid || username.String == "" {
+		http.Redirect(w, r, "/?pick_username=1", http.StatusTemporaryRedirect)
+	} else {
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	}
+}
+
+func initOAuth() {
+	jwtSecret = []byte(os.Getenv("JWT_SECRET"))
+
+	googleOAuthConfig = &oauth2.Config{
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURL:  "https://wireroom.up.railway.app/auth/google/callback",
+		Scopes:       []string{"openid", "email", "profile"},
+		Endpoint:     google.Endpoint,
+	}
+
+	githubOAuthConfig = &oauth2.Config{
+		ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+		ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+		RedirectURL:  "https://wireroom.up.railway.app/auth/github/callback",
+		Scopes:       []string{"user:email"},
+		Endpoint:     github.Endpoint,
+	}
+}
 func initDB() {
 	connStr := os.Getenv("DATABASE_URL")
 	var err error
@@ -41,12 +222,71 @@ func registerUser(username, password string) error {
 }
 
 func authUser(username, password string) bool {
-	var hash string
-	err := db.QueryRow("SELECT password FROM users where LOWER(username)=LOWER($1)", username).Scan(&hash)
-	if err != nil {
+	var hash sql.NullString
+	err := db.QueryRow(
+		"SELECT password FROM users WHERE LOWER(username) = LOWER($1)", username,
+	).Scan(&hash)
+	if err != nil || !hash.Valid {
 		return false
 	}
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+	return bcrypt.CompareHashAndPassword([]byte(hash.String), []byte(password)) == nil
+}
+func handleSetUsername(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cookie, err := r.Cookie("wr_token")
+	if err != nil {
+		http.Error(w, "not authenticated", http.StatusUnauthorized)
+		return
+	}
+
+	userID, _, err := validateToken(cookie.Value)
+	if err != nil {
+		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	var body struct {
+		Username string `json:"username"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+
+	name, errmsg := validateUsername(body.Username)
+	if errmsg != "" {
+		http.Error(w, errmsg, http.StatusBadRequest)
+		return
+	}
+
+	// Check not taken
+	var existing int
+	err = db.QueryRow("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", name).Scan(&existing)
+	if err == nil {
+		http.Error(w, "username already taken", http.StatusConflict)
+		return
+	}
+
+	_, err = db.Exec("UPDATE users SET username = $1 WHERE id = $2", name, userID)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+
+	// Issue new token with username set
+	newToken, _ := generateToken(userID, name)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "wr_token",
+		Value:    newToken,
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 60 * 60,
+	})
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func saveMessage(roomCode, username, content string) int64 {
@@ -231,32 +471,58 @@ outer:
 				return
 			}
 
+			if msg.Type == "auth" {
+				// JWT auth from OAuth
+				userID, username, err := validateToken(msg.Content)
+				if err != nil {
+					sendError("invalid session, please log in again", conn)
+					continue
+				}
+				// Check if username is set
+				if username == "" {
+					sendError("please pick a username first", conn)
+					continue
+				}
+				_ = userID
+				uname = username
+				break
+			}
+
 			if msg.Type != "join" {
 				continue
 			}
 
+			// Password auth
 			name, errmsg := validateUsername(msg.User)
 			if errmsg != "" {
 				sendError(errmsg, conn)
 				continue
 			}
-			var existingHash string
-			err = db.QueryRow("SELECT password FROM users WHERE LOWER(username)=LOWER($1)", name).Scan(&existingHash)
+
+			var existingHash sql.NullString
+			err = db.QueryRow(
+				"SELECT password FROM users WHERE LOWER(username) = LOWER($1)", name,
+			).Scan(&existingHash)
+
 			if err == sql.ErrNoRows {
-				err = registerUser(name, msg.Content)
-				if err != nil {
-					sendError("Couldn't Register User", conn)
+				if regErr := registerUser(name, msg.Content); regErr != nil {
+					sendError("could not register user", conn)
 					continue
 				}
 			} else if err != nil {
-				sendError("Database Error", conn)
+				sendError("database error", conn)
 				continue
 			} else {
+				if !existingHash.Valid {
+					sendError("this account uses OAuth login", conn)
+					continue
+				}
 				if !authUser(name, msg.Content) {
-					sendError("Incorrect password", conn)
+					sendError("incorrect password", conn)
 					continue
 				}
 			}
+
 			uname = name
 			break
 		}
@@ -390,7 +656,13 @@ outer:
 
 func main() {
 	initDB()
+	initOAuth()
 	http.HandleFunc("/ws", wsHandler)
+	http.HandleFunc("/auth/google", handleGoogleLogin)
+	http.HandleFunc("/auth/google/callback", handleGoogleCallback)
+	http.HandleFunc("/auth/github", handleGithubLogin)
+	http.HandleFunc("/auth/github/callback", handleGithubCallback)
+	http.HandleFunc("/auth/set-username", handleSetUsername)
 	http.Handle("/", http.FileServer(http.Dir("public")))
 	log.Println("Server running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))

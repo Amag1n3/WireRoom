@@ -3,11 +3,12 @@ const TIMEOUT_MS     = 2 * 60 * 1000;
 const TYPING_IDLE_MS = 2000;
 
 // ── DOM refs ──
-const loginScreen    = document.getElementById("login-screen");
-const roomScreen     = document.getElementById("room-screen");
-const joinScreen     = document.getElementById("join-screen");
-const chatScreen     = document.getElementById("chat-screen");
-const allScreens     = [loginScreen, roomScreen, joinScreen, chatScreen];
+const loginScreen         = document.getElementById("login-screen");
+const pickUsernameScreen  = document.getElementById("pick-username-screen");
+const roomScreen          = document.getElementById("room-screen");
+const joinScreen          = document.getElementById("join-screen");
+const chatScreen          = document.getElementById("chat-screen");
+const allScreens          = [loginScreen, pickUsernameScreen, roomScreen, joinScreen, chatScreen];
 
 const usernameInput  = document.getElementById("username-input");
 const passwordInput  = document.getElementById("password-input");
@@ -15,6 +16,10 @@ const loginBtn       = document.getElementById("login-btn");
 const loginError     = document.getElementById("login-error");
 const loginInfo      = document.getElementById("login-info");
 const timeoutDisplay = document.getElementById("timeout-display");
+
+const pickUsernameInput = document.getElementById("pick-username-input");
+const pickUsernameBtn   = document.getElementById("pick-username-btn");
+const pickUsernameError = document.getElementById("pick-username-error");
 
 const roomWelcome    = document.getElementById("room-welcome");
 const createRoomBtn  = document.getElementById("create-room-btn");
@@ -56,7 +61,7 @@ const typingUsers   = new Set();
 let typingIdleTimer = null;
 let isSelfTyping    = false;
 
-// ── Screen management ──
+// ── Helpers ──
 function showScreen(screen) {
   allScreens.forEach(s => s.classList.remove("active"));
   screen.classList.add("active");
@@ -66,12 +71,82 @@ function isHost() {
   return currentUser.toLowerCase() === currentHost.toLowerCase();
 }
 
+function getToken() {
+  return localStorage.getItem("wr_token");
+}
+
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? match[2] : null;
+}
+
+// ── OAuth pick-username flow ──
+// If redirected back with ?pick_username=1, show that screen
+if (new URLSearchParams(window.location.search).get("pick_username") === "1") {
+  // Clean URL
+  history.replaceState({}, "", "/");
+  showScreen(pickUsernameScreen);
+  pickUsernameInput.focus();
+}
+
+pickUsernameBtn.addEventListener("click", async () => {
+  const name = pickUsernameInput.value.trim();
+  if (!name) { pickUsernameError.textContent = "please enter a username."; return; }
+
+  pickUsernameBtn.disabled = true;
+  pickUsernameError.textContent = "";
+
+  try {
+    const res = await fetch("/auth/set-username", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: name }),
+      credentials: "include"
+    });
+
+    if (res.ok) {
+      // Cookie updated with new token — proceed to WS auth
+      showScreen(loginScreen);
+      connectWS();
+    } else {
+      const text = await res.text();
+      pickUsernameError.textContent = text || "could not set username.";
+      pickUsernameBtn.disabled = false;
+      pickUsernameInput.focus();
+    }
+  } catch {
+    pickUsernameError.textContent = "network error, try again.";
+    pickUsernameBtn.disabled = false;
+  }
+});
+
+pickUsernameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") pickUsernameBtn.click();
+});
+
 // ── WebSocket ──
 function connectWS() {
   const protocol = location.protocol === "https:" ? "wss://" : "ws://";
   ws = new WebSocket(protocol + location.host + "/ws");
 
-  ws.onopen = () => setLoginEnabled(true);
+  ws.onopen = () => {
+    // Try OAuth token first (from cookie set by server)
+    const token = getCookie("wr_token");
+    if (token) {
+      ws.send(JSON.stringify({ type: "auth", content: token }));
+    } else {
+      // Fall back to password login
+      setLoginEnabled(true);
+      // Auto-login if saved credentials exist
+      const savedUser = localStorage.getItem("wr_user");
+      const savedPass = localStorage.getItem("wr_pass");
+      if (savedUser && savedPass) {
+        usernameInput.value = savedUser;
+        passwordInput.value = savedPass;
+        tryLogin();
+      }
+    }
+  };
 
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
@@ -84,6 +159,13 @@ function connectWS() {
           roomCodeInput.disabled = false;
           roomCodeInput.focus();
         } else {
+          // If OAuth token auth failed, clear cookie and show login
+          if (getCookie("wr_token")) {
+            document.cookie = "wr_token=; Max-Age=0; path=/";
+            setLoginEnabled(true);
+            loginError.textContent = "session expired, please log in again.";
+            return;
+          }
           attempts++;
           const remaining = MAX_ATTEMPTS - attempts;
           if (remaining <= 0) { startTimeout(); return; }
@@ -94,7 +176,12 @@ function connectWS() {
 
       case "join_ok":
         attempts    = 0;
-        currentUser = usernameInput.value.trim();
+        currentUser = m.content.replace("Welcome, ", "").replace("!", "") || usernameInput.value.trim();
+        // Save for password users
+        if (usernameInput.value.trim()) {
+          localStorage.setItem("wr_user", usernameInput.value.trim());
+          localStorage.setItem("wr_pass", passwordInput.value);
+        }
         roomWelcome.textContent = `connected as ${currentUser}`;
         showScreen(roomScreen);
         break;
@@ -139,8 +226,10 @@ function connectWS() {
       case "kicked":
         ws.close();
         currentRoomCode = ""; currentUser = ""; currentHost = "";
+        localStorage.removeItem("wr_user");
+        localStorage.removeItem("wr_pass");
+        document.cookie = "wr_token=; Max-Age=0; path=/";
         loginError.textContent = "you were kicked from the room.";
-        passwordInput.value = "";
         showScreen(loginScreen);
         connectWS();
         break;
@@ -163,36 +252,6 @@ function connectWS() {
   };
 }
 
-// ── History ──
-function renderHistory(messages) {
-  if (messages.length === 0) return;
-
-  // Separator
-  const sep = document.createElement("div");
-  sep.className = "msg system";
-  const sepBubble = document.createElement("div");
-  sepBubble.className = "msg-bubble";
-  sepBubble.textContent = "── last 24 hours ──";
-  sep.appendChild(sepBubble);
-  chatBody.appendChild(sep);
-
-  messages.forEach(m => {
-    const isSelf = m.user.toLowerCase() === currentUser.toLowerCase();
-    appendMessage(m.user, m.content, isSelf, m.id);
-  });
-
-  // Another separator to mark where live chat begins
-  const sep2 = document.createElement("div");
-  sep2.className = "msg system";
-  const sep2Bubble = document.createElement("div");
-  sep2Bubble.className = "msg-bubble";
-  sep2Bubble.textContent = "── live ──";
-  sep2.appendChild(sep2Bubble);
-  chatBody.appendChild(sep2);
-
-  chatBody.scrollTop = chatBody.scrollHeight;
-}
-
 // ── Login ──
 function tryLogin() {
   const name = usernameInput.value.trim();
@@ -208,7 +267,7 @@ function setLoginEnabled(enabled) {
   usernameInput.disabled = !enabled;
   passwordInput.disabled = !enabled;
   loginBtn.disabled       = !enabled;
-  if (enabled) usernameInput.focus();
+  if (enabled && !getCookie("wr_token")) usernameInput.focus();
 }
 
 function startTimeout() {
@@ -288,6 +347,34 @@ leaveBtn.addEventListener("click", () => {
   showScreen(loginScreen);
   connectWS();
 });
+
+// ── History ──
+function renderHistory(messages) {
+  if (messages.length === 0) return;
+
+  const sep = document.createElement("div");
+  sep.className = "msg system";
+  const sepBubble = document.createElement("div");
+  sepBubble.className = "msg-bubble";
+  sepBubble.textContent = "── last 24 hours ──";
+  sep.appendChild(sepBubble);
+  chatBody.appendChild(sep);
+
+  messages.forEach(m => {
+    const isSelf = m.user.toLowerCase() === currentUser.toLowerCase();
+    appendMessage(m.user, m.content, isSelf, m.id);
+  });
+
+  const sep2 = document.createElement("div");
+  sep2.className = "msg system";
+  const sep2Bubble = document.createElement("div");
+  sep2Bubble.className = "msg-bubble";
+  sep2Bubble.textContent = "── live ──";
+  sep2.appendChild(sep2Bubble);
+  chatBody.appendChild(sep2);
+
+  chatBody.scrollTop = chatBody.scrollHeight;
+}
 
 // ── Participants ──
 function updateParticipants(users) {
@@ -416,7 +503,6 @@ function send() {
   if (!content) return;
   clearTimeout(typingIdleTimer);
   sendTypingStop();
-  // No optimistic render — server echoes back via broadcastAll with the real DB id
   ws.send(JSON.stringify({ type: "message", content }));
   msgInput.value = "";
 }
@@ -459,5 +545,7 @@ usernameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLog
 passwordInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
 
 // ── Init ──
-setLoginEnabled(false);
-connectWS();
+// Only show login screen if not on pick_username flow
+if (!new URLSearchParams(window.location.search).get("pick_username")) {
+  connectWS();
+}
