@@ -49,6 +49,34 @@ func authUser(username, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
+func saveMessage(roomCode, username, content string) int64 {
+	var id int64
+	err := db.QueryRow("INSERT INTO messages (room_code, usernamen content) values ($1,$2,$3) RETURNING id", roomCode, username, content).Scan(&id)
+	if err != nil {
+		log.Println("saveMessage error: ", err)
+	}
+	return id
+}
+
+func getRecentMessages(roomCode string) []Message {
+	rows, err := db.Query("SELECT id, username, content FROM messages WHERE room_code = $1 AND created_at > NOW() - INTERVAL '24 hours' ORDER BY created_at ASC", roomCode)
+	if err != nil {
+		log.Println("getRecentMessages error: ", err)
+	}
+	defer rows.Close()
+	var msgs []Message
+	for rows.Next() {
+		var m Message
+		err := rows.Scan(&m.ID, &m.User, &m.Content)
+		if err != nil {
+			continue
+		}
+		m.Type = "message"
+		msgs = append(msgs, m)
+	}
+	return msgs
+}
+
 type Room struct {
 	code    string
 	clients map[*websocket.Conn]string
@@ -56,11 +84,13 @@ type Room struct {
 	mu      sync.Mutex
 }
 type Message struct {
-	Type    string   `json:"type"`
-	User    string   `json:"user"`
-	Content string   `json:"content"`
-	Users   []string `json:"users,omitempty"`
-	Target  string   `json:"target,omitempty"`
+	ID       int64     `json:"id,omitempty"`
+	Type     string    `json:"type"`
+	User     string    `json:"user"`
+	Content  string    `json:"content"`
+	Users    []string  `json:"users,omitempty"`
+	Target   string    `json:"target,omitempty"`
+	Messages []Message `json:"messages,omitempty"`
 }
 
 var (
@@ -304,6 +334,8 @@ outer:
 		}
 	}()
 
+	history := getRecentMessages(room.code)
+	conn.WriteJSON(Message{Type: "history", Messages: history})
 	room.broadcastLocked(conn, Message{Type: "system", Content: uname + " joined the room"})
 
 	for {
@@ -350,7 +382,8 @@ outer:
 				sendError("Message too long (max 500 characters)", conn)
 				continue
 			}
-			room.broadcastLocked(conn, Message{Type: "message", Content: content, User: uname})
+			id := saveMessage(room.code, uname, content)
+			room.broadcastAll(Message{Type: "message", Content: content, User: uname, ID: id})
 		}
 	}
 }

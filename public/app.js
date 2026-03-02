@@ -108,11 +108,17 @@ function connectWS() {
         appendSystem(m.content);
         break;
 
-      case "message":
+      case "history":
+        renderHistory(m.messages || []);
+        break;
+
+      case "message": {
+        const isSelf = m.user.toLowerCase() === currentUser.toLowerCase();
         typingUsers.delete(m.user);
         updateTypingIndicator();
-        appendMessage(m.user, m.content, false);
+        appendMessage(m.user, m.content, isSelf, m.id);
         break;
+      }
 
       case "typing":
         if (m.content === "start") typingUsers.add(m.user);
@@ -155,6 +161,36 @@ function connectWS() {
       appendSystem("disconnected from server.");
     }
   };
+}
+
+// ── History ──
+function renderHistory(messages) {
+  if (messages.length === 0) return;
+
+  // Separator
+  const sep = document.createElement("div");
+  sep.className = "msg system";
+  const sepBubble = document.createElement("div");
+  sepBubble.className = "msg-bubble";
+  sepBubble.textContent = "── last 24 hours ──";
+  sep.appendChild(sepBubble);
+  chatBody.appendChild(sep);
+
+  messages.forEach(m => {
+    const isSelf = m.user.toLowerCase() === currentUser.toLowerCase();
+    appendMessage(m.user, m.content, isSelf, m.id);
+  });
+
+  // Another separator to mark where live chat begins
+  const sep2 = document.createElement("div");
+  sep2.className = "msg system";
+  const sep2Bubble = document.createElement("div");
+  sep2Bubble.className = "msg-bubble";
+  sep2Bubble.textContent = "── live ──";
+  sep2.appendChild(sep2Bubble);
+  chatBody.appendChild(sep2);
+
+  chatBody.scrollTop = chatBody.scrollHeight;
 }
 
 // ── Login ──
@@ -380,20 +416,24 @@ function send() {
   if (!content) return;
   clearTimeout(typingIdleTimer);
   sendTypingStop();
-  appendMessage("You", content, true);
+  // No optimistic render — server echoes back via broadcastAll with the real DB id
   ws.send(JSON.stringify({ type: "message", content }));
   msgInput.value = "";
 }
 
-function appendMessage(user, content, isSelf) {
+function appendMessage(user, content, isSelf, id) {
   const wrapper = document.createElement("div");
   wrapper.className = "msg " + (isSelf ? "self" : "other");
+  if (id) wrapper.dataset.msgId = id;
+
   const meta = document.createElement("div");
   meta.className = "msg-meta";
   meta.textContent = isSelf ? "you" : user;
+
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble";
   bubble.textContent = content;
+
   wrapper.appendChild(meta);
   wrapper.appendChild(bubble);
   chatBody.appendChild(wrapper);
