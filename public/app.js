@@ -86,7 +86,6 @@ const _urlParams = new URLSearchParams(window.location.search);
 if (_urlParams.get("pick_username") === "1") {
   const _urlToken = _urlParams.get("token");
   if (_urlToken) {
-    // Store token from URL into cookie immediately
     document.cookie = `wr_token=${_urlToken}; path=/; max-age=${30 * 24 * 60 * 60}; secure; samesite=lax`;
   }
   history.replaceState({}, "", "/");
@@ -122,9 +121,11 @@ pickUsernameBtn.addEventListener("click", async () => {
 
     if (res.ok) {
       const data = await res.json();
+      // Update cookie with new token
       document.cookie = `wr_token=${data.token}; path=/; max-age=${30 * 24 * 60 * 60}; secure; samesite=lax`;
       showScreen(loginScreen);
-      setTimeout(() => connectWS(), 200);
+      // Pass new token directly — no cookie timing issues
+      connectWS(data.token);
     } else {
       const text = await res.text();
       pickUsernameError.textContent = text || "could not set username.";
@@ -142,19 +143,16 @@ pickUsernameInput.addEventListener("keydown", (e) => {
 });
 
 // ── WebSocket ──
-function connectWS() {
+function connectWS(overrideToken = null) {
   const protocol = location.protocol === "https:" ? "wss://" : "ws://";
   ws = new WebSocket(protocol + location.host + "/ws");
 
   ws.onopen = () => {
-    // Try OAuth token first (from cookie set by server)
-    const token = getCookie("wr_token");
+    const token = overrideToken || getCookie("wr_token");
     if (token) {
       ws.send(JSON.stringify({ type: "auth", content: token }));
     } else {
-      // Fall back to password login
       setLoginEnabled(true);
-      // Auto-login if saved credentials exist
       const savedUser = localStorage.getItem("wr_user");
       const savedPass = localStorage.getItem("wr_pass");
       if (savedUser && savedPass) {
@@ -176,7 +174,6 @@ function connectWS() {
           roomCodeInput.disabled = false;
           roomCodeInput.focus();
         } else {
-          // If OAuth token auth failed, clear cookie and show login
           if (getCookie("wr_token")) {
             document.cookie = "wr_token=; Max-Age=0; path=/";
             setLoginEnabled(true);
@@ -194,7 +191,6 @@ function connectWS() {
       case "join_ok":
         attempts    = 0;
         currentUser = m.content.replace("Welcome, ", "").replace("!", "") || usernameInput.value.trim();
-        // Save for password users
         if (usernameInput.value.trim()) {
           localStorage.setItem("wr_user", usernameInput.value.trim());
           localStorage.setItem("wr_pass", passwordInput.value);
