@@ -156,7 +156,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if !username.Valid || username.String == "" {
-		http.Redirect(w, r, "/?pick_username=1", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/?pick_username=1&token="+jwtToken, http.StatusTemporaryRedirect)
 	} else {
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 	}

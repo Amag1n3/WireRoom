@@ -81,9 +81,14 @@ function getCookie(name) {
 }
 
 // ── OAuth pick-username flow ──
-// If redirected back with ?pick_username=1, show that screen
-if (new URLSearchParams(window.location.search).get("pick_username") === "1") {
-  // Clean URL
+// ── OAuth pick-username flow ──
+const _urlParams = new URLSearchParams(window.location.search);
+if (_urlParams.get("pick_username") === "1") {
+  const _urlToken = _urlParams.get("token");
+  if (_urlToken) {
+    // Store token from URL into cookie immediately
+    document.cookie = `wr_token=${_urlToken}; path=/; max-age=${30 * 24 * 60 * 60}; secure; samesite=lax`;
+  }
   history.replaceState({}, "", "/");
   showScreen(pickUsernameScreen);
   pickUsernameInput.focus();
