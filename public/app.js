@@ -1,65 +1,65 @@
-const MAX_ATTEMPTS   = 5;
-const TIMEOUT_MS     = 2 * 60 * 1000;
+const MAX_ATTEMPTS = 5;
+const TIMEOUT_MS = 2 * 60 * 1000;
 const TYPING_IDLE_MS = 2000;
 
 // ── DOM refs ──
-const loginScreen         = document.getElementById("login-screen");
-const pickUsernameScreen  = document.getElementById("pick-username-screen");
-const roomScreen          = document.getElementById("room-screen");
-const joinScreen          = document.getElementById("join-screen");
-const chatScreen          = document.getElementById("chat-screen");
-const allScreens          = [loginScreen, pickUsernameScreen, roomScreen, joinScreen, chatScreen];
+const loginScreen = document.getElementById("login-screen");
+const pickUsernameScreen = document.getElementById("pick-username-screen");
+const roomScreen = document.getElementById("room-screen");
+const joinScreen = document.getElementById("join-screen");
+const chatScreen = document.getElementById("chat-screen");
+const allScreens = [loginScreen, pickUsernameScreen, roomScreen, joinScreen, chatScreen];
 
-const usernameInput  = document.getElementById("username-input");
-const passwordInput  = document.getElementById("password-input");
-const loginBtn       = document.getElementById("login-btn");
-const loginError     = document.getElementById("login-error");
-const loginInfo      = document.getElementById("login-info");
+const usernameInput = document.getElementById("username-input");
+const passwordInput = document.getElementById("password-input");
+const loginBtn = document.getElementById("login-btn");
+const loginError = document.getElementById("login-error");
+const loginInfo = document.getElementById("login-info");
 const timeoutDisplay = document.getElementById("timeout-display");
 
 const pickUsernameInput = document.getElementById("pick-username-input");
-const pickUsernameBtn   = document.getElementById("pick-username-btn");
+const pickUsernameBtn = document.getElementById("pick-username-btn");
 const pickUsernameError = document.getElementById("pick-username-error");
 
-const roomWelcome    = document.getElementById("room-welcome");
-const createRoomBtn  = document.getElementById("create-room-btn");
-const joinRoomBtn    = document.getElementById("join-room-btn");
+const roomWelcome = document.getElementById("room-welcome");
+const createRoomBtn = document.getElementById("create-room-btn");
+const joinRoomBtn = document.getElementById("join-room-btn");
 
-const roomCodeInput  = document.getElementById("room-code-input");
-const submitRoomBtn  = document.getElementById("submit-room-btn");
-const joinError      = document.getElementById("join-error");
-const backBtn        = document.getElementById("back-btn");
+const roomCodeInput = document.getElementById("room-code-input");
+const submitRoomBtn = document.getElementById("submit-room-btn");
+const joinError = document.getElementById("join-error");
+const backBtn = document.getElementById("back-btn");
 
-const roomBadge      = document.getElementById("room-badge");
-const roomBadgeCode  = document.getElementById("room-badge-code");
-const roomBadgeCopy  = document.getElementById("room-badge-copy");
-const chatBody       = document.getElementById("chat-body");
-const msgInput       = document.getElementById("msg");
-const sendBtn        = document.getElementById("send-btn");
-const leaveBtn       = document.getElementById("leave-btn");
+const roomBadge = document.getElementById("room-badge");
+const roomBadgeCode = document.getElementById("room-badge-code");
+const roomBadgeCopy = document.getElementById("room-badge-copy");
+const chatBody = document.getElementById("chat-body");
+const msgInput = document.getElementById("msg");
+const sendBtn = document.getElementById("send-btn");
+const leaveBtn = document.getElementById("leave-btn");
 
-const typingDots       = document.getElementById("typing-dots");
-const typingText       = document.getElementById("typing-text");
-const participantList  = document.getElementById("participant-list");
+const typingDots = document.getElementById("typing-dots");
+const typingText = document.getElementById("typing-text");
+const participantList = document.getElementById("participant-list");
 const participantCount = document.getElementById("participant-count");
 
-const contextMenu  = document.getElementById("context-menu");
-const ctxMakeHost  = document.getElementById("ctx-make-host");
-const ctxKick      = document.getElementById("ctx-kick");
+const contextMenu = document.getElementById("context-menu");
+const ctxMakeHost = document.getElementById("ctx-make-host");
+const ctxKick = document.getElementById("ctx-kick");
 
 // ── State ──
 let ws;
-let attempts         = 0;
-let timedOut         = false;
-let currentRoomCode  = "";
-let currentUser      = "";
-let currentHost      = "";
-let contextTarget    = "";
+let attempts = 0;
+let timedOut = false;
+let currentRoomCode = "";
+let currentUser = "";
+let currentHost = "";
+let contextTarget = "";
 let lastParticipants = [];
 
-const typingUsers   = new Set();
+const typingUsers = new Set();
 let typingIdleTimer = null;
-let isSelfTyping    = false;
+let isSelfTyping = false;
 
 // ── Helpers ──
 function showScreen(screen) {
@@ -120,12 +120,7 @@ pickUsernameBtn.addEventListener("click", async () => {
     });
 
     if (res.ok) {
-      const data = await res.json();
-      // Update cookie with new token
-      document.cookie = `wr_token=${data.token}; path=/; max-age=${30 * 24 * 60 * 60}; secure; samesite=lax`;
-      showScreen(loginScreen);
-      // Pass new token directly — no cookie timing issues
-      connectWS(data.token);
+      location.href = "/";
     } else {
       const text = await res.text();
       pickUsernameError.textContent = text || "could not set username.";
@@ -169,17 +164,15 @@ function connectWS(overrideToken = null) {
 
       case "error":
         if (joinScreen.classList.contains("active")) {
-          joinError.textContent  = m.content;
+          joinError.textContent = m.content;
           submitRoomBtn.disabled = false;
           roomCodeInput.disabled = false;
           roomCodeInput.focus();
+        } else if (m.content === "invalid session, please log in again") {
+          document.cookie = "wr_token=; Max-Age=0; path=/";
+          setLoginEnabled(true);
+          loginError.textContent = "session expired, please log in again.";
         } else {
-          if (getCookie("wr_token")) {
-            document.cookie = "wr_token=; Max-Age=0; path=/";
-            setLoginEnabled(true);
-            loginError.textContent = "session expired, please log in again.";
-            return;
-          }
           attempts++;
           const remaining = MAX_ATTEMPTS - attempts;
           if (remaining <= 0) { startTimeout(); return; }
@@ -189,7 +182,7 @@ function connectWS(overrideToken = null) {
         break;
 
       case "join_ok":
-        attempts    = 0;
+        attempts = 0;
         currentUser = m.content.replace("Welcome, ", "").replace("!", "") || usernameInput.value.trim();
         if (usernameInput.value.trim()) {
           localStorage.setItem("wr_user", usernameInput.value.trim());
@@ -270,7 +263,7 @@ function tryLogin() {
   const name = usernameInput.value.trim();
   const pass = passwordInput.value;
   if (!name) { loginError.textContent = "please enter a username."; return; }
-  if (!pass)  { loginError.textContent = "please enter a password."; return; }
+  if (!pass) { loginError.textContent = "please enter a password."; return; }
   loginError.textContent = "";
   setLoginEnabled(false);
   ws.send(JSON.stringify({ type: "join", user: name, content: pass }));
@@ -279,7 +272,7 @@ function tryLogin() {
 function setLoginEnabled(enabled) {
   usernameInput.disabled = !enabled;
   passwordInput.disabled = !enabled;
-  loginBtn.disabled       = !enabled;
+  loginBtn.disabled = !enabled;
   if (enabled && !getCookie("wr_token")) usernameInput.focus();
 }
 
@@ -298,7 +291,7 @@ function startTimeout() {
 }
 
 function updateTimeout(s) {
-  const m   = Math.floor(s / 60).toString().padStart(2, "0");
+  const m = Math.floor(s / 60).toString().padStart(2, "0");
   const sec = (s % 60).toString().padStart(2, "0");
   timeoutDisplay.textContent = `${m}:${sec}`;
   loginInfo.textContent = "try again after cooldown";
@@ -398,9 +391,9 @@ function updateParticipants(users) {
   participantList.innerHTML = "";
 
   list.forEach(name => {
-    const isSelf     = name.toLowerCase() === currentUser.toLowerCase();
+    const isSelf = name.toLowerCase() === currentUser.toLowerCase();
     const isHostUser = name.toLowerCase() === currentHost.toLowerCase();
-    const canManage  = isHost() && !isSelf;
+    const canManage = isHost() && !isSelf;
 
     const item = document.createElement("div");
     item.className = "participant-item" + (canManage ? " can-manage" : "");
@@ -445,10 +438,10 @@ function updateParticipants(users) {
 function showContextMenu(x, y) {
   contextMenu.classList.add("visible");
   const menuW = 160, menuH = 80;
-  const left = Math.min(x, window.innerWidth  - menuW - 8);
-  const top  = Math.min(y, window.innerHeight - menuH - 8);
+  const left = Math.min(x, window.innerWidth - menuW - 8);
+  const top = Math.min(y, window.innerHeight - menuH - 8);
   contextMenu.style.left = left + "px";
-  contextMenu.style.top  = top  + "px";
+  contextMenu.style.top = top + "px";
 }
 
 function hideContextMenu() {
