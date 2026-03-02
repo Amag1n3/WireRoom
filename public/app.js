@@ -117,10 +117,9 @@ pickUsernameBtn.addEventListener("click", async () => {
 
     if (res.ok) {
       const data = await res.json();
-      // Set the new token directly so connectWS() gets it immediately
       document.cookie = `wr_token=${data.token}; path=/; max-age=${30 * 24 * 60 * 60}; secure; samesite=lax`;
       showScreen(loginScreen);
-      connectWS();
+      setTimeout(() => connectWS(), 200);
     } else {
       const text = await res.text();
       pickUsernameError.textContent = text || "could not set username.";
