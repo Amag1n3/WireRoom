@@ -69,6 +69,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	token, err := googleOAuthConfig.Exchange(context.Background(), code)
 	if err != nil {
+		log.Println("Google token exchange error:", err)
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
@@ -129,6 +130,7 @@ func handleGithubCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	token, err := githubOAuthConfig.Exchange(context.Background(), code)
 	if err != nil {
+		log.Println("GitHub token exchange error:", err)
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
