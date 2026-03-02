@@ -61,16 +61,50 @@ func validateToken(tokenStr string) (int, string, error) {
 	return userID, username, nil
 }
 func handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
-	url := googleOAuthConfig.AuthCodeURL("state",
-		oauth2.SetAuthURLParam("prompt", "consent"),
-	)
+	state := fmt.Sprintf("%d", time.Now().UnixNano())
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/",
+		MaxAge:   300,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	url := googleOAuthConfig.AuthCodeURL(state)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
+
 func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
+	// Debug — remove once fixed
+	log.Println("DEBUG: Google callback hit")
+	log.Println("DEBUG: error param =", r.URL.Query().Get("error"))
+	log.Println("DEBUG: code present =", r.URL.Query().Get("code") != "")
+
+	// State validation
+	stateCookie, err := r.Cookie("oauth_state")
+	if err != nil {
+		log.Println("DEBUG: oauth_state cookie missing, err =", err)
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+	if stateCookie.Value != r.URL.Query().Get("state") {
+		log.Println("DEBUG: state mismatch, cookie =", stateCookie.Value, "| param =", r.URL.Query().Get("state"))
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+
 	code := r.URL.Query().Get("code")
+	if code == "" {
+		log.Println("DEBUG: code is empty")
+		http.Error(w, "no code", http.StatusBadRequest)
+		return
+	}
+
 	token, err := googleOAuthConfig.Exchange(context.Background(), code)
 	if err != nil {
-		log.Println("Google token exchange error:", err)
+		log.Printf("DEBUG: exchange error type: %T", err)
+		log.Printf("DEBUG: exchange error full: %+v", err)
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
@@ -90,17 +124,17 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(resp.Body).Decode(&info)
 
-	// Upsert user
 	var userID int
 	var username sql.NullString
 	err = db.QueryRow(
 		`INSERT INTO users (google_id, avatar_url)
-         VALUES ($1, $2)
-         ON CONFLICT (google_id) DO UPDATE SET avatar_url = $2
-         RETURNING id, username`,
+		 VALUES ($1, $2)
+		 ON CONFLICT (google_id) DO UPDATE SET avatar_url = $2
+		 RETURNING id, username`,
 		info.ID, info.Picture,
 	).Scan(&userID, &username)
 	if err != nil {
+		log.Println("DEBUG: Google DB error:", err)
 		http.Error(w, "DB error", http.StatusInternalServerError)
 		return
 	}
@@ -110,7 +144,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		Name:     "wr_token",
 		Value:    jwtToken,
 		Path:     "/",
-		HttpOnly: false, // needs to be readable by JS
+		HttpOnly: false,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 60 * 60,
