@@ -76,7 +76,6 @@ func handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
-	// Debug — remove once fixed
 	log.Println("DEBUG: Google callback hit")
 	log.Println("DEBUG: error param =", r.URL.Query().Get("error"))
 	log.Println("DEBUG: code present =", r.URL.Query().Get("code") != "")
@@ -84,19 +83,21 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	// State validation
 	stateCookie, err := r.Cookie("oauth_state")
 	if err != nil {
-		log.Println("DEBUG: oauth_state cookie missing, err =", err)
+		log.Println("DEBUG: oauth_state cookie MISSING, err =", err)
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
-	if stateCookie.Value != r.URL.Query().Get("state") {
-		log.Println("DEBUG: state mismatch, cookie =", stateCookie.Value, "| param =", r.URL.Query().Get("state"))
+	stateParam := r.URL.Query().Get("state")
+	if stateCookie.Value != stateParam {
+		log.Println("DEBUG: state MISMATCH — cookie:", stateCookie.Value, "| param:", stateParam)
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
+	log.Println("DEBUG: state OK")
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		log.Println("DEBUG: code is empty")
+		log.Println("DEBUG: code is EMPTY")
 		http.Error(w, "no code", http.StatusBadRequest)
 		return
 	}
@@ -108,10 +109,12 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to exchange token", http.StatusInternalServerError)
 		return
 	}
+	log.Println("DEBUG: token exchange OK")
 
 	client := googleOAuthConfig.Client(context.Background(), token)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
+		log.Println("DEBUG: userinfo fetch error:", err)
 		http.Error(w, "Failed to get user info", http.StatusInternalServerError)
 		return
 	}
@@ -123,6 +126,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		Picture string `json:"picture"`
 	}
 	json.NewDecoder(resp.Body).Decode(&info)
+	log.Println("DEBUG: got user info, ID =", info.ID)
 
 	var userID int
 	var username sql.NullString
@@ -138,6 +142,7 @@ func handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "DB error", http.StatusInternalServerError)
 		return
 	}
+	log.Println("DEBUG: DB upsert OK, userID =", userID, "username =", username)
 
 	jwtToken, _ := generateToken(userID, username.String)
 	http.SetCookie(w, &http.Cookie{
