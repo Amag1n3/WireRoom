@@ -56,6 +56,7 @@ let currentUser = "";
 let currentHost = "";
 let contextTarget = "";
 let lastParticipants = [];
+let wasKicked = false;
 
 const typingUsers = new Set();
 let typingIdleTimer = null;
@@ -230,6 +231,7 @@ function connectWS(overrideToken = null) {
         break;
 
       case "kicked":
+        wasKicked = true;
         ws.close();
         currentRoomCode = ""; currentUser = ""; currentHost = "";
         localStorage.removeItem("wr_user");
@@ -251,7 +253,10 @@ function connectWS(overrideToken = null) {
   };
 
   ws.onclose = () => {
-    if (timedOut) return;
+    if (timedOut || wasKicked) {
+      wasKicked = false;
+      return;
+    }
     if (chatScreen.classList.contains("active")) {
       appendSystem("disconnected from server.");
     }
