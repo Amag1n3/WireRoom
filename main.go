@@ -336,9 +336,10 @@ func handleSetUsername(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   30 * 24 * 60 * 60,
 	})
 
-	w.WriteHeader(http.StatusOK)
+	// Return new token in body so JS can use it immediately
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": newToken})
 }
-
 func saveMessage(roomCode, username, content string) int64 {
 	var id int64
 	err := db.QueryRow(`INSERT INTO messages (room_code, username, "content") values ($1,$2,$3) RETURNING id`, roomCode, username, content).Scan(&id)

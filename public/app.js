@@ -93,14 +93,9 @@ pickUsernameBtn.addEventListener("click", async () => {
   const name = pickUsernameInput.value.trim();
   if (!name) { pickUsernameError.textContent = "please enter a username."; return; }
 
-  // Debug — remove once working
-  console.log("All cookies:", document.cookie);
-  console.log("wr_token:", getCookie("wr_token"));
-
   const token = getCookie("wr_token");
   if (!token) {
     pickUsernameError.textContent = "session lost, please log in again.";
-    pickUsernameBtn.disabled = false;
     showScreen(loginScreen);
     connectWS();
     return;
@@ -121,6 +116,9 @@ pickUsernameBtn.addEventListener("click", async () => {
     });
 
     if (res.ok) {
+      const data = await res.json();
+      // Set the new token directly so connectWS() gets it immediately
+      document.cookie = `wr_token=${data.token}; path=/; max-age=${30 * 24 * 60 * 60}; secure; samesite=lax`;
       showScreen(loginScreen);
       connectWS();
     } else {
@@ -133,6 +131,10 @@ pickUsernameBtn.addEventListener("click", async () => {
     pickUsernameError.textContent = "network error, try again.";
     pickUsernameBtn.disabled = false;
   }
+});
+
+pickUsernameInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") pickUsernameBtn.click();
 });
 
 // ── WebSocket ──
