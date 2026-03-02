@@ -679,7 +679,12 @@ outer:
 				continue
 			}
 			target.WriteJSON(Message{Type: "kicked", Content: "you were kicked by the host"})
-			target.Close()
+			// Don't close immediately — let the client handle it
+			// The client will close the connection after receiving "kicked"
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				target.Close()
+			}()
 
 		case "transfer_host":
 			room.mu.Lock()
