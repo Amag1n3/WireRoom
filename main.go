@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode"
 
+	_ "github.com/lib/pq"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
