@@ -345,9 +345,10 @@ func handleSetUsername(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"token": newToken})
 }
-func saveMessage(roomCode, username, content string) int64 {
+func saveMessage(roomCode, username, content string, replyTo *int64) int64 {
 	var id int64
-	err := db.QueryRow(`INSERT INTO messages (room_code, username, "content") values ($1,$2,$3) RETURNING id`, roomCode, username, content).Scan(&id)
+	err := db.QueryRow(
+		"INSERT INTO messages (room_code, username, content, reply_to) VALUES ($1, $2, $3, $4) RETURNING id", roomCode, username, content, replyTo).Scan(&id)
 	if err != nil {
 		log.Println("saveMessage error: ", err)
 	}
@@ -355,19 +356,35 @@ func saveMessage(roomCode, username, content string) int64 {
 }
 
 func getRecentMessages(roomCode string) []Message {
-	rows, err := db.Query(`SELECT id, username, "content" FROM messages WHERE room_code = $1 AND created_at > NOW() - INTERVAL '24 hours' ORDER BY created_at ASC`, roomCode)
+	rows, err := db.Query(`
+		SELECT m.id, m.username, m.content, m.reply_to, LEFT(r.content, 80)
+		FROM messages m
+		LEFT JOIN messages r ON m.reply_to = r.id
+		WHERE m.room_code = $1
+		  AND m.created_at > NOW() - INTERVAL '24 hours'
+		ORDER BY m.created_at ASC`,
+		roomCode,
+	)
 	if err != nil {
 		log.Println("getRecentMessages error: ", err)
+		return nil
 	}
 	defer rows.Close()
+
 	var msgs []Message
 	for rows.Next() {
 		var m Message
-		err := rows.Scan(&m.ID, &m.User, &m.Content)
+		var replyTo sql.NullInt64
+		var replySnip sql.NullString
+		err := rows.Scan(&m.ID, &m.User, &m.Content, &replyTo, &replySnip)
 		if err != nil {
 			continue
 		}
 		m.Type = "message"
+		if replyTo.Valid {
+			m.ReplyTo = &replyTo.Int64
+			m.ReplySnip = replySnip.String
+		}
 		msgs = append(msgs, m)
 	}
 	return msgs
@@ -380,13 +397,15 @@ type Room struct {
 	mu      sync.Mutex
 }
 type Message struct {
-	ID       int64     `json:"id,omitempty"`
-	Type     string    `json:"type"`
-	User     string    `json:"user"`
-	Content  string    `json:"content"`
-	Users    []string  `json:"users,omitempty"`
-	Target   string    `json:"target,omitempty"`
-	Messages []Message `json:"messages,omitempty"`
+	ID        int64     `json:"id,omitempty"`
+	Type      string    `json:"type"`
+	User      string    `json:"user"`
+	Content   string    `json:"content"`
+	Users     []string  `json:"users,omitempty"`
+	Target    string    `json:"target,omitempty"`
+	Messages  []Message `json:"messages,omitempty"`
+	ReplyTo   *int64    `json:"reply_to,omitempty"`
+	ReplySnip string    `json:"reply_snip,omitempty"`
 }
 
 var (
@@ -709,8 +728,30 @@ outer:
 				sendError("Message too long (max 500 characters)", conn)
 				continue
 			}
-			id := saveMessage(room.code, uname, content)
-			room.broadcastAll(Message{Type: "message", Content: content, User: uname, ID: id})
+			id := saveMessage(room.code, uname, content, msg.ReplyTo)
+
+			var replySnip string
+			if msg.ReplyTo != nil {
+				var original string
+				err := db.QueryRow(
+					"SELECT content FROM messages WHERE id = $1", *msg.ReplyTo,
+				).Scan(&original)
+				if err == nil {
+					if len(original) > 80 {
+						original = original[:80] + "…"
+					}
+					replySnip = original
+				}
+			}
+
+			room.broadcastAll(Message{
+				Type:      "message",
+				Content:   content,
+				User:      uname,
+				ID:        id,
+				ReplyTo:   msg.ReplyTo,
+				ReplySnip: replySnip,
+			})
 		}
 	}
 }

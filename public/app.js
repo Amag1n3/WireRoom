@@ -47,6 +47,9 @@ const contextMenu = document.getElementById("context-menu");
 const ctxMakeHost = document.getElementById("ctx-make-host");
 const ctxKick = document.getElementById("ctx-kick");
 
+const replyPreview = document.getElementById("reply-preview");
+const replyPreviewText = document.getElementById("reply-preview-text");
+const replyPreviewClose = document.getElementById("reply-preview-close");
 // ── State ──
 let ws;
 let attempts = 0;
@@ -57,6 +60,7 @@ let currentHost = "";
 let contextTarget = "";
 let lastParticipants = [];
 let wasKicked = false;
+let replyTarget = null; // { id, user, content }
 
 const typingUsers = new Set();
 let typingIdleTimer = null;
@@ -210,7 +214,7 @@ function connectWS(overrideToken = null) {
         const isSelf = m.user.toLowerCase() === currentUser.toLowerCase();
         typingUsers.delete(m.user);
         updateTypingIndicator();
-        appendMessage(m.user, m.content, isSelf, m.id);
+        appendMessage(m.user, m.content, isSelf, m.id, m.reply_to, m.reply_snip);
         break;
       }
 
@@ -339,6 +343,7 @@ function enterChat(roomCode) {
   participantList.innerHTML = "";
   participantCount.textContent = "0";
   roomBadgeCode.textContent = roomCode;
+  clearReply();
   showScreen(chatScreen);
   msgInput.focus();
 }
@@ -373,7 +378,7 @@ function renderHistory(messages) {
 
   messages.forEach(m => {
     const isSelf = m.user.toLowerCase() === currentUser.toLowerCase();
-    appendMessage(m.user, m.content, isSelf, m.id);
+    appendMessage(m.user, m.content, isSelf, m.id, m.reply_to, m.reply_snip);
   });
 
   const sep2 = document.createElement("div");
@@ -514,11 +519,29 @@ function send() {
   if (!content) return;
   clearTimeout(typingIdleTimer);
   sendTypingStop();
-  ws.send(JSON.stringify({ type: "message", content }));
+
+  const payload = { type: "message", content };
+  if (replyTarget) {
+    payload.reply_to = replyTarget.id;
+  }
+  ws.send(JSON.stringify(payload));
+
   msgInput.value = "";
+  clearReply();
+}
+function setReply(id, user, content) {
+  replyTarget = { id, user, content };
+  replyPreview.classList.add("visible");
+  replyPreviewText.textContent = `↩ ${user}: "${content.length > 60 ? content.slice(0, 60) + "…" : content}"`;
+  msgInput.focus();
 }
 
-function appendMessage(user, content, isSelf, id) {
+function clearReply() {
+  replyTarget = null;
+  replyPreview.classList.remove("visible");
+  replyPreviewText.textContent = "";
+}
+function appendMessage(user, content, isSelf, id, replyTo, replySnip) {
   const wrapper = document.createElement("div");
   wrapper.className = "msg " + (isSelf ? "self" : "other");
   if (id) wrapper.dataset.msgId = id;
@@ -529,14 +552,42 @@ function appendMessage(user, content, isSelf, id) {
 
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble";
-  bubble.textContent = content;
+
+  if (replyTo && replySnip) {
+    const quote = document.createElement("div");
+    quote.className = "msg-reply-quote";
+    quote.textContent = replySnip;
+    quote.addEventListener("click", () => {
+      const original = document.querySelector(`[data-msg-id="${replyTo}"]`);
+      if (!original) return;
+      original.scrollIntoView({ behavior: "smooth", block: "center" });
+      original.classList.add("msg-highlight");
+      setTimeout(() => original.classList.remove("msg-highlight"), 1500);
+    });
+    bubble.appendChild(quote);
+  }
+
+  const text = document.createElement("span");
+  text.textContent = content;
+  bubble.appendChild(text);
 
   wrapper.appendChild(meta);
   wrapper.appendChild(bubble);
+
+  if (id) {
+    const replyBtn = document.createElement("button");
+    replyBtn.className = "msg-reply-btn";
+    replyBtn.textContent = "↩";
+    replyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setReply(id, user, content);
+    });
+    wrapper.appendChild(replyBtn);
+  }
+
   chatBody.appendChild(wrapper);
   chatBody.scrollTop = chatBody.scrollHeight;
 }
-
 function appendSystem(text) {
   const wrapper = document.createElement("div");
   wrapper.className = "msg system";
@@ -554,6 +605,42 @@ msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
 loginBtn.addEventListener("click", tryLogin);
 usernameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
 passwordInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
+replyPreviewClose.addEventListener("click", clearReply);
+chatBody.addEventListener("contextmenu", (e) => {
+  const msgEl = e.target.closest(".msg[data-msg-id]");
+  if (!msgEl) return;
+  e.preventDefault();
+  const id = parseInt(msgEl.dataset.msgId);
+  const user = msgEl.querySelector(".msg-meta").textContent;
+  const text = msgEl.querySelector(".msg-bubble span")?.textContent || "";
+  setReply(id, user === "you" ? currentUser : user, text);
+});
+let touchStartX = 0;
+let touchStartY = 0;
+let touchTarget = null;
+
+chatBody.addEventListener("touchstart", (e) => {
+  const msgEl = e.target.closest(".msg[data-msg-id]");
+  if (!msgEl) return;
+  touchTarget = msgEl;
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+
+chatBody.addEventListener("touchend", (e) => {
+  if (!touchTarget) return;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+
+  if (dx > 60 && dy < 40) {
+    const id = parseInt(touchTarget.dataset.msgId);
+    const user = touchTarget.querySelector(".msg-meta").textContent;
+    const text = touchTarget.querySelector(".msg-bubble span")?.textContent || "";
+    setReply(id, user === "you" ? currentUser : user, text);
+  }
+
+  touchTarget = null;
+}, { passive: true });
 
 // ── Init ──
 // Only show login screen if not on pick_username flow
