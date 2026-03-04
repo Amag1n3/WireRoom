@@ -318,8 +318,10 @@ createRoomBtn.addEventListener("click", () => ws.send(JSON.stringify({ type: "cr
 
 joinRoomBtn.addEventListener("click", () => {
   joinError.textContent = ""; roomCodeInput.value = "";
+  roomCodeInput.disabled = false; submitRoomBtn.disabled = false;
   showScreen(joinScreen); roomCodeInput.focus();
 });
+
 
 backBtn.addEventListener("click", () => showScreen(roomScreen));
 
