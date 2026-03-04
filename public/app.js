@@ -349,6 +349,7 @@ function tryJoinRoom() {
 
 submitRoomBtn.addEventListener("click", tryJoinRoom);
 roomCodeInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryJoinRoom(); });
+joinPasswordInput.addEventListener("keydown", (e) => { if (e.key === "Enter") tryJoinRoom(); });
 
 // ── Enter chat ──
 function enterChat(roomCode) {
