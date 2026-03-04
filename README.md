@@ -2,8 +2,7 @@
 
 > Real-time, room-based chat — built with Go, WebSockets, and PostgreSQL.
 
-<img width="2879" height="1594" alt="image" src="https://github.com/user-attachments/assets/a4c5370b-aa42-4ed7-8633-8ddf1d625376" />
-
+`[screenshot: login screen showing Google/GitHub OAuth buttons and password login]`
 
 **Live demo:** [wireroom.up.railway.app](https://wireroom.up.railway.app)
 
@@ -42,8 +41,9 @@ The backend is written in Go and handles concurrent rooms using goroutines and m
 - Kick participants — kicked users are redirected immediately with a notification
 - Transfer host role to any participant via right-click context menu
 
-<img width="2879" height="1602" alt="image" src="https://github.com/user-attachments/assets/f24d98bc-891d-4d22-983d-156bad0513a9" />
+`[screenshot: participant sidebar showing host crown, right-click context menu with Make Host and Kick options]`
 
+`[screenshot: chat room showing message bubbles, typing indicator, participant sidebar, and emoji reaction pills]`
 
 ---
 
@@ -178,10 +178,6 @@ WireRoom/
 - JWT tokens are signed with HS256 and expire after 30 days
 - SSL enforced on all database connections
 - Login lockout after 5 failed attempts with a 2-minute cooldown
-
----
-<img width="364" height="433" alt="image" src="https://github.com/user-attachments/assets/16dc29f7-ca1a-44ea-854c-6bfd6b8b1fab" />
-
 
 ---
 
