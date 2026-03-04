@@ -79,6 +79,10 @@
         <div id="room-welcome" class="logo-sub"></div>
       </div>
       <div class="divider"></div>
+      <div class="field">
+        <label>Room Password <span class="field-hint">(optional)</span></label>
+        <input id="room-password-input" type="password" placeholder="leave empty for open room..." maxlength="50" autocomplete="off" />
+      </div>
       <div class="btn-row">
         <button id="create-room-btn" class="btn btn-primary">+ New Room</button>
         <button id="join-room-btn" class="btn btn-secondary">Join Room</button>
@@ -97,6 +101,10 @@
       <div class="field">
         <label>Room Code</label>
         <input id="room-code-input" type="text" placeholder="8-character code..." maxlength="8" autocomplete="off" />
+      </div>
+      <div id="join-password-field" class="field" style="display:none">
+        <label>Room Password</label>
+        <input id="join-password-input" type="password" placeholder="this room is locked..." maxlength="50" autocomplete="off" />
       </div>
       <button id="submit-room-btn" class="btn btn-primary">Join Room →</button>
       <div id="join-error" class="msg-error"></div>

@@ -391,21 +391,24 @@ func getRecentMessages(roomCode string) []Message {
 }
 
 type Room struct {
-	code    string
-	clients map[*websocket.Conn]string
-	host    *websocket.Conn
-	mu      sync.Mutex
+	code     string
+	password string
+	clients  map[*websocket.Conn]string
+	host     *websocket.Conn
+	mu       sync.Mutex
 }
 type Message struct {
 	ID        int64     `json:"id,omitempty"`
 	Type      string    `json:"type"`
 	User      string    `json:"user"`
 	Content   string    `json:"content"`
+	Password  string    `json:"password,omitempty"`
 	Users     []string  `json:"users,omitempty"`
 	Target    string    `json:"target,omitempty"`
 	Messages  []Message `json:"messages,omitempty"`
 	ReplyTo   *int64    `json:"reply_to,omitempty"`
 	ReplySnip string    `json:"reply_snip,omitempty"`
+	HasPass   bool      `json:"has_password,omitempty"`
 }
 
 var (
@@ -433,7 +436,7 @@ func isUsernameTakenInRoom(room *Room, name string) bool {
 	}
 	return false
 }
-func createRoom() *Room {
+func createRoom(password string) *Room {
 	roomsMu.Lock()
 	defer roomsMu.Unlock()
 
@@ -446,9 +449,10 @@ func createRoom() *Room {
 	}
 
 	room := &Room{
-		code:    code,
-		clients: make(map[*websocket.Conn]string),
-		host:    nil,
+		code:     code,
+		password: password,
+		clients:  make(map[*websocket.Conn]string),
+		host:     nil,
 	}
 	rooms[code] = room
 	return room
@@ -611,7 +615,7 @@ outer:
 			}
 			switch msg.Type {
 			case "create_room":
-				room = createRoom()
+				room = createRoom(msg.Password)
 				conn.WriteJSON(Message{Type: "room_created", Content: room.code})
 			case "join_room":
 				room = joinRoom(msg.Content)
@@ -620,8 +624,18 @@ outer:
 					continue
 				}
 				room.mu.Lock()
+				hasPass := room.password != ""
+				passOK := !hasPass || room.password == msg.Password
 				taken := isUsernameTakenInRoom(room, uname)
 				room.mu.Unlock()
+				if hasPass && msg.Password == "" {
+					conn.WriteJSON(Message{Type: "room_needs_password", Content: room.code, HasPass: true})
+					continue
+				}
+				if !passOK {
+					sendError("incorrect room password", conn)
+					continue
+				}
 				if taken {
 					conn.WriteJSON(Message{Type: "username_taken_in_room", Content: "that username is already taken in this room"})
 					room = nil

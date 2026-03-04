@@ -29,6 +29,9 @@ const roomCodeInput = document.getElementById("room-code-input");
 const submitRoomBtn = document.getElementById("submit-room-btn");
 const joinError = document.getElementById("join-error");
 const backBtn = document.getElementById("back-btn");
+const roomPasswordInput = document.getElementById("room-password-input");
+const joinPasswordField = document.getElementById("join-password-field");
+const joinPasswordInput = document.getElementById("join-password-input");
 
 const roomBadge = document.getElementById("room-badge");
 const roomBadgeCode = document.getElementById("room-badge-code");
@@ -196,7 +199,13 @@ function connectWS(overrideToken = null) {
         roomWelcome.textContent = `connected as ${currentUser}`;
         showScreen(roomScreen);
         break;
-
+      case "room_needs_password":
+        joinPasswordField.style.display = "block";
+        joinPasswordInput.focus();
+        submitRoomBtn.disabled = false;
+        roomCodeInput.disabled = false;
+        joinError.textContent = "this room requires a password.";
+        break;
       case "room_created":
       case "room_joined":
         enterChat(m.content);
@@ -314,10 +323,15 @@ function resetAfterTimeout() {
 }
 
 // ── Room selection ──
-createRoomBtn.addEventListener("click", () => ws.send(JSON.stringify({ type: "create_room" })));
+createRoomBtn.addEventListener("click", () => {
+  const pass = roomPasswordInput.value.trim();
+  ws.send(JSON.stringify({ type: "create_room", password: pass }));
+  roomPasswordInput.value = "";
+});
 
 joinRoomBtn.addEventListener("click", () => {
   joinError.textContent = ""; roomCodeInput.value = "";
+  joinPasswordField.style.display = "none"; joinPasswordInput.value = "";
   roomCodeInput.disabled = false; submitRoomBtn.disabled = false;
   showScreen(joinScreen); roomCodeInput.focus();
 });
@@ -328,8 +342,9 @@ backBtn.addEventListener("click", () => showScreen(roomScreen));
 function tryJoinRoom() {
   const code = roomCodeInput.value.trim().toUpperCase();
   if (!code) { joinError.textContent = "please enter a room code."; return; }
+  const pass = joinPasswordInput.value.trim();
   joinError.textContent = ""; submitRoomBtn.disabled = true; roomCodeInput.disabled = true;
-  ws.send(JSON.stringify({ type: "join_room", content: code }));
+  ws.send(JSON.stringify({ type: "join_room", content: code, password: pass }));
 }
 
 submitRoomBtn.addEventListener("click", tryJoinRoom);
