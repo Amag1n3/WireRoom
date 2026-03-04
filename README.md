@@ -2,7 +2,8 @@
 
 > Real-time, room-based chat — built with Go, WebSockets, and PostgreSQL.
 
-`[screenshot: login screen showing Google/GitHub OAuth buttons and password login]`
+<img width="2879" height="1594" alt="image" src="https://github.com/user-attachments/assets/8e88ab41-d650-4f54-b921-c9acf390cc9a" />
+
 
 **Live demo:** [wireroom.up.railway.app](https://wireroom.up.railway.app)
 
@@ -41,9 +42,11 @@ The backend is written in Go and handles concurrent rooms using goroutines and m
 - Kick participants — kicked users are redirected immediately with a notification
 - Transfer host role to any participant via right-click context menu
 
-`[screenshot: participant sidebar showing host crown, right-click context menu with Make Host and Kick options]`
+<img width="364" height="433" alt="image" src="https://github.com/user-attachments/assets/1d4e0b6f-5737-4e39-b40a-bbf88ec61270" />
 
-`[screenshot: chat room showing message bubbles, typing indicator, participant sidebar, and emoji reaction pills]`
+
+<img width="2879" height="1602" alt="image" src="https://github.com/user-attachments/assets/565f71f9-9871-4dcd-90ed-11e3b865b075" />
+
 
 ---
 
