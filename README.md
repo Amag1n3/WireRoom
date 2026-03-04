@@ -190,8 +190,13 @@ WireRoom/
 - [ ] Rate limiting on message sends
 - [ ] Persistent emoji reactions (currently in-memory per session)
 
+
 ---
 
 ## Author
 
-Built by [Amogh](https://github.com/Amag1n3) — open to internship and junior engineering opportunities.
+Built by Amogh — open to internship and junior engineering opportunities.
+
+[![GitHub](https://img.shields.io/badge/GitHub-Amag1n3-181717?style=flat&logo=github)](https://github.com/Amag1n3)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-amag1n3-0A66C2?style=flat&logo=linkedin)](https://www.linkedin.com/in/amag1n3/)
+[![Email](https://img.shields.io/badge/Email-amoghtyagi22092005@gmail.com-EA4335?style=flat&logo=gmail)](mailto:amoghtyagi22092005@gmail.com)
