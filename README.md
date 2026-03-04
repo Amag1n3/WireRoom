@@ -189,7 +189,6 @@ WireRoom/
 - [ ] Mobile responsive layout
 - [ ] Rate limiting on message sends
 - [ ] Persistent emoji reactions (currently in-memory per session)
-- [ ] Room passwords
 
 ---
 
