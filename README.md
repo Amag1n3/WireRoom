@@ -26,6 +26,7 @@ The backend is written in Go and handles concurrent rooms using goroutines and m
 
 **Rooms**
 - Create private rooms with randomly generated 8-character codes
+- Optional room password set at creation — joiners are prompted if required
 - Join any room by code — shareable via one-click copy
 - Per-room username uniqueness enforced at the server
 - Host role with crown indicator — automatically transferred if host leaves
@@ -189,7 +190,7 @@ WireRoom/
 - [ ] Mobile responsive layout
 - [ ] Rate limiting on message sends
 - [ ] Persistent emoji reactions (currently in-memory per session)
-
+- [x] Room passwords
 
 ---
 
