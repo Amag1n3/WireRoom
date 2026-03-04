@@ -702,6 +702,14 @@ outer:
 		switch msg.Type {
 		case "typing":
 			room.broadcastLocked(conn, Message{Type: "typing", User: uname, Content: msg.Content})
+		case "reaction":
+			// Broadcast the reaction to everyone in the room
+			room.broadcastAll(Message{
+				Type:    "reaction",
+				Content: msg.Content, // emoji
+				User:    uname,       // who sent it
+				ReplyTo: msg.ReplyTo, // message id
+			})
 		case "kick":
 			room.mu.Lock()
 			isHost := room.host == conn

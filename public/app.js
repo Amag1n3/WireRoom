@@ -53,6 +53,10 @@ const ctxKick = document.getElementById("ctx-kick");
 const replyPreview = document.getElementById("reply-preview");
 const replyPreviewText = document.getElementById("reply-preview-text");
 const replyPreviewClose = document.getElementById("reply-preview-close");
+
+const emojiBtn = document.getElementById("emoji-btn");
+const emojiPickerContainer = document.getElementById("emoji-picker-container");
+const reactPickerContainer = document.getElementById("react-picker-container");
 // ── State ──
 let ws;
 let attempts = 0;
@@ -64,11 +68,56 @@ let contextTarget = "";
 let lastParticipants = [];
 let wasKicked = false;
 let replyTarget = null; // { id, user, content }
+let reactTargetId = null;
+const reactionStore = {}; // { msgId: { emoji: [user1, user2] } }
 
 const typingUsers = new Set();
 let typingIdleTimer = null;
 let isSelfTyping = false;
 
+// ── Emoji pickers ──
+const inputPicker = picmo.createPicker({
+  rootElement: emojiPickerContainer,
+  theme: picmo.darkTheme,
+  emojisPerRow: 8,
+  visibleRows: 4,
+});
+
+inputPicker.addEventListener("emoji:select", (e) => {
+  msgInput.value += e.emoji;
+  msgInput.focus();
+});
+
+const reactPicker = picmo.createPicker({
+  rootElement: reactPickerContainer,
+  theme: picmo.darkTheme,
+  emojisPerRow: 8,
+  visibleRows: 4,
+});
+
+reactPicker.addEventListener("emoji:select", (e) => {
+  if (reactTargetId && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "reaction", content: e.emoji, reply_to: reactTargetId }));
+  }
+  reactPickerContainer.classList.remove("visible");
+  reactTargetId = null;
+});
+
+emojiBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  reactPickerContainer.classList.remove("visible");
+  emojiPickerContainer.classList.toggle("visible");
+});
+
+document.addEventListener("click", (e) => {
+  if (!emojiPickerContainer.contains(e.target) && e.target !== emojiBtn) {
+    emojiPickerContainer.classList.remove("visible");
+  }
+  if (!reactPickerContainer.contains(e.target)) {
+    reactPickerContainer.classList.remove("visible");
+    reactTargetId = null;
+  }
+});
 // ── Helpers ──
 function showScreen(screen) {
   allScreens.forEach(s => s.classList.remove("active"));
@@ -232,6 +281,20 @@ function connectWS(overrideToken = null) {
         else typingUsers.delete(m.user);
         updateTypingIndicator();
         break;
+      case "reaction": {
+        const msgId = m.reply_to;
+        const emoji = m.content;
+        const user = m.user;
+        if (!reactionStore[msgId]) reactionStore[msgId] = {};
+        if (!reactionStore[msgId][emoji]) reactionStore[msgId][emoji] = [];
+        const users = reactionStore[msgId][emoji];
+        const idx = users.indexOf(user);
+        if (idx === -1) users.push(user);
+        else users.splice(idx, 1);
+        if (users.length === 0) delete reactionStore[msgId][emoji];
+        renderReactions(msgId);
+        break;
+      }
 
       case "room_members":
         updateParticipants(m.users);
@@ -559,6 +622,35 @@ function clearReply() {
   replyPreview.classList.remove("visible");
   replyPreviewText.textContent = "";
 }
+function renderReactions(msgId) {
+  const wrapper = document.querySelector(`[data-msg-id="${msgId}"]`);
+  if (!wrapper) return;
+  let container = wrapper.querySelector(".msg-reactions");
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "msg-reactions";
+    wrapper.appendChild(container);
+  }
+  container.innerHTML = "";
+  const data = reactionStore[msgId] || {};
+  for (const [emoji, users] of Object.entries(data)) {
+    const pill = document.createElement("span");
+    pill.className = "reaction-pill" + (users.includes(currentUser) ? " reacted" : "");
+    pill.innerHTML = `<span class="reaction-emoji">${emoji}</span><span class="reaction-count">${users.length}</span>`;
+    pill.addEventListener("click", () => {
+      ws.send(JSON.stringify({ type: "reaction", content: emoji, reply_to: parseInt(msgId) }));
+    });
+    container.appendChild(pill);
+  }
+}
+
+function openReactPicker(msgId, x, y) {
+  reactTargetId = parseInt(msgId);
+  emojiPickerContainer.classList.remove("visible");
+  reactPickerContainer.style.left = Math.min(x, window.innerWidth - 340) + "px";
+  reactPickerContainer.style.top = Math.max(10, y - 350) + "px";
+  reactPickerContainer.classList.add("visible");
+}
 function appendMessage(user, content, isSelf, id, replyTo, replySnip) {
   const wrapper = document.createElement("div");
   wrapper.className = "msg " + (isSelf ? "self" : "other");
@@ -593,6 +685,16 @@ function appendMessage(user, content, isSelf, id, replyTo, replySnip) {
   wrapper.appendChild(bubble);
 
   if (id) {
+    const replyBtn = document.createElement("button");
+    replyBtn.className = "msg-reply-btn";
+    replyBtn.textContent = "↩";
+    replyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setReply(id, user, content);
+    });
+    wrapper.appendChild(replyBtn);
+  }
+    if (id) {
     const replyBtn = document.createElement("button");
     replyBtn.className = "msg-reply-btn";
     replyBtn.textContent = "↩";

@@ -6,6 +6,7 @@
   <title>WireRoom</title>
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
+  <script src="https://unpkg.com/picmo@5.8.5/dist/umd/index.js"></script>
 </head>
 <body>
 
@@ -144,6 +145,10 @@
             <button id="reply-preview-close">✕</button>
           </div>
           <input id="msg" type="text" placeholder="send a message..." autocomplete="off" />
+          <div id="emoji-btn-wrapper">
+            <button id="emoji-btn" type="button">😀</button>
+            <div id="emoji-picker-container"></div>
+          </div>
           <button id="send-btn">Send ↑</button>
         </div>
       </div>
@@ -163,6 +168,8 @@
     <div class="context-item" id="ctx-make-host">♛ Make Host</div>
     <div class="context-item danger" id="ctx-kick">✕ Kick</div>
   </div>
+
+  <div id="react-picker-container"></div>
 
   <script src="/app.js"></script>
 </body>

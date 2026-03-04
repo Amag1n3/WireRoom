@@ -642,3 +642,107 @@ input::placeholder { color: var(--text-muted); }
 .msg { position: relative; }
 
 .msg.self .msg-reply-btn { right: auto; left: 4px; }
+/* ── EMOJI BUTTON ── */
+#emoji-btn-wrapper {
+  position: relative;
+}
+
+#emoji-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.18s;
+  line-height: 1;
+}
+#emoji-btn:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+#emoji-picker-container {
+  position: absolute;
+  bottom: 50px;
+  right: 0;
+  z-index: 50;
+  display: none;
+}
+#emoji-picker-container.visible {
+  display: block;
+  animation: menuIn 0.15s ease;
+}
+
+/* ── REACT BUTTON ON MESSAGES ── */
+.msg-react-btn {
+  position: absolute;
+  top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  font-family: 'DM Mono', monospace;
+  z-index: 1;
+}
+.msg.other .msg-react-btn { right: 30px; }
+.msg.self .msg-react-btn { left: 30px; }
+.msg:hover .msg-react-btn { opacity: 1; }
+.msg-react-btn:hover { color: var(--accent2); border-color: var(--accent); }
+
+/* ── REACTION PILLS ── */
+.msg-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.reaction-pill:hover {
+  border-color: var(--accent);
+  background: rgba(108,99,255,0.1);
+}
+.reaction-pill.reacted {
+  border-color: var(--accent);
+  background: rgba(108,99,255,0.15);
+}
+.reaction-pill .reaction-emoji { font-size: 0.9rem; }
+.reaction-pill .reaction-count { color: var(--text-muted); font-size: 0.7rem; }
+.reaction-pill.reacted .reaction-count { color: var(--accent2); }
+
+/* ── REACT PICKER (floating) ── */
+#react-picker-container {
+  position: fixed;
+  z-index: 100;
+  display: none;
+}
+#react-picker-container.visible {
+  display: block;
+  animation: menuIn 0.15s ease;
+}
+
+/* ── FIELD HINT ── */
+.field-hint {
+  font-weight: 300;
+  opacity: 0.5;
+  text-transform: none;
+  letter-spacing: normal;
+}
